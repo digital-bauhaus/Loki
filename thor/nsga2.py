@@ -505,10 +505,6 @@ class Nsga2:
             except:
                 sys.exit("Probability for Noise_small, Noise_big, Linear_Transformation and Negation must be float. "
                          "Please check your configuration file!")
-        try:
-            relevance_treshhold = float(self.config['Scope_for_Changes']['Relevance_Treshhold'])
-        except:
-            sys.exit("Relevance_Treshhold must be a float. Please check your configuration file!")
 
         feature_list_new = avm.get_feature_influences()
         if avm.uses_interactions():
@@ -524,6 +520,10 @@ class Nsga2:
             "Options for Change_Feature are: all, most-influential, none")
 
         if self.config['Scope_for_Changes']['Change_Feature'] == "most-influential":
+            try:
+                relevance_treshhold = float(self.config['Scope_for_Changes']['Relevance_Treshhold'])
+            except:
+                sys.exit("Relevance_Treshhold must be a float. Please check your configuration file!")
             feature_changes = most_influential(feature_list_new, relevance_treshhold)
         else:
             feature_changes = feature_list_new
@@ -534,6 +534,10 @@ class Nsga2:
                                                                                     "none"]), (
                 "Options for Change_Interaction are: all, most-influential, none")
             if self.config['Scope_for_Changes']['Change_Interaction'] == "most-influential":
+                try:
+                    relevance_treshhold = float(self.config['Scope_for_Changes']['Relevance_Treshhold'])
+                except:
+                    sys.exit("Relevance_Treshhold must be a float. Please check your configuration file!")
                 interactions_changes = most_influential(interactions_list_new, relevance_treshhold)
             else:
                 interactions_changes = interactions_list_new
@@ -1010,10 +1014,10 @@ def compute_fulfilled_objectives(avm, avm_modified, config):
     change_probs = {}
     for operation in change_operations:
         change_probs[operation] = float(config[str(operation)]['Probability'])
-    relevance_treshold = float(config['Scope_for_Changes']['Relevance_Treshhold'])
 
     # get elements of dictionary, which where objected to modification
     if config['Scope_for_Changes']['Change_Feature'] == "most_influential":
+        relevance_treshold = float(config['Scope_for_Changes']['Relevance_Treshhold'])
         feature_dict = most_influential(avm.get_feature_influences(), relevance_treshold)
         new_feature_dict = most_influential(avm_modified.get_feature_influences(), relevance_treshold)
     else:
@@ -1024,6 +1028,7 @@ def compute_fulfilled_objectives(avm, avm_modified, config):
 
     if avm.uses_interactions():
         if config['Scope_for_Changes']['Change_Interaction'] == "most_influential":
+            relevance_treshold = float(config['Scope_for_Changes']['Relevance_Treshhold'])
             interactions_dict = most_influential(avm.get_interaction_influences(), relevance_treshold)
             new_interactions_dict = most_influential(avm_modified.get_interaction_influences(), relevance_treshold)
             # model_dict.update(interactions_dict)
