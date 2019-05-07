@@ -1,0 +1,29 @@
+AVM-Generation:
+  NumberOfThreads: 5
+  DirectoryToSaveResults: /home/johannes/thor/
+  ResultsToBeSaved: overall-best
+  ResultsCustomSpecs: [0.2, 0.2, 0.6]
+  AttributedModel:
+    With_Variants: True
+    DIMACS-file: some.dimacs
+    Feature-file: some_features.txt
+    Interactions-file: some_interactions.txt
+  NonAttributedModel:
+    DIMACS-file: another.dimacs
+    Feature-file: some_other_features.txt
+    New_Interactions_Specs: [1000, 85, 2, 10, 3, 5, 4]
+  Variants:
+    Sampling_Method: random
+    NumberOfVariants: 500
+    Permutation_Method: complete
+  NSGAII:
+    Population_Size: 200
+    Maximum_Generations: 100
+    Selection_Algorithm: stochastic_universal_sampling
+    Recombination_Algorithm: Line_Recombination
+    Similarity_Measures:
+      - KS
+      - AD
+  KDE:
+    KDE_bandwidth: auto
+    NumberOfBins: 100

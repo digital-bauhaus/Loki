@@ -127,3 +127,13 @@ dmypy.json
 
 # Thor default results dir
 *AVM*Results/
+
+#Thor configs except example configs
+*.yaml
+*.yml
+*.txt
+*.ini
+*.conf
+*.dimacs
+!*example*
+

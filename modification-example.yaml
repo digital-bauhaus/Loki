@@ -1,0 +1,47 @@
+AVM-Modification:
+  NumberOfThreads: -1
+  DirectoryToSaveResults: auto
+  ResultsToBeSaved: overall-best
+  AttributedModel:
+    With_Variants: True
+    DIMACS-file: some.dimacs
+    Feature-file: some_features.txt
+    Interactions-file: some_interactions.txt
+  Variants:
+    Sampling_Method: random
+    NumberOfVariants: 100
+    Permutation_Method: no_permutation
+  NSGAII:
+    Population_Size: 100
+    Maximum_Generations: 100
+    Selection_Algorithm: tournament_selection
+    Recombination_Algorithm: universal_CO
+  KDE:
+    KDE_bandwidth: auto
+    NumberOfBins: 100
+  Scope_for_Changes:
+    Change_Feature: all
+    Change_Feature_percentage: 0.1
+    Change_Interaction: all
+    Change_Interaction_percentage: 0.3
+    Change_Operations:
+      - Noise_small
+      - Noise_big
+      - Linear_Transformation
+      - Negation
+  Noise_small:
+    Probability: 0.5
+    Mean: 0.0
+    Standard_deviation: 0.1
+  Noise_big:
+    Probability: 0.25
+    Mean: 0.0
+    Standard_deviation: 3.0
+  Linear_Transformation:
+    Probability: 0.2
+    Operation: addition
+    Operand: 22
+  Negation:
+    Probability: 0.05
+  Search_Space:
+    Find_common_and_dead_features: True
