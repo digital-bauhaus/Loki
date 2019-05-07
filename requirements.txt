@@ -3,3 +3,4 @@ matplotlib
 scipy	
 pycosat
 scikit-learn
+PyYAML
