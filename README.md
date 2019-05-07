@@ -1,29 +1,22 @@
-# how to use thor2 and its config files
+# Thor2
+A tool to genererate authentic attributed variability models (AVM) and modify existings ones. 
+With an AVM as input, it employs NSGA-II, a genetic algorithm, to determine attribute attribute values s.a. performance for an unattributed variability model (VM). With such models, algorithms working on AVM may be evaluated on large-scale software systems in feasible time.
 
+## Getting started
+Here are a few tips and recommendations on how to use thor2 in its current state.
 
-## Running thor2.py
-1. Open a command window
-(optional: Change directory to the folder, where thor2.py is located)
-2. enter "python [path to thor2.py relative to your correct location] [path to configuration file relative to thor2.py]"
-example: "python thor2.py config.ini"
+### Dependencies
+Berore running thor2, you need to install required Python modules, which are listed in [requirements.txt](requirements.txt). To install them, run `pip install -r requirements.txt`
 
-It is recommended to store thor2.py and the configuration file or a folder with multiple configuration files in the same folder
+### Run thor2
+Run `python thor2.py my-conf.yaml`, where `python` is a Python 3 interpreter and  `my-conf.yaml` is your configuration file.
 
-  
+### Configure thor2
+Thor2 uses a configuration file to carry user constraints and environment parameters. Being written in [YAML](https://yaml.org/),  all config options are specified within one task node. As seen in the example configs [generation-example.yaml](generation-example.yaml) and [modification-example.yaml](modification-example.yaml), the task node is `AVM-Generation` if you want to generate attribute values s.a. performance for an VM and `AVM-Modification` if you want to modify an AVM. 
 
-# Dependencies
-The following python libraries are required to run thor2.py:
-- matplotlib
-- numpy
-- pycosat
-- scipy
-- sci-kit learn
+It is advisable to start with the example configurations and test if your AVM files have the supported syntax for thor2. Next, you can adjust the settings to your needs, following the configuration option descriptions below. Note, however, that the configuration of thor2 is currently under reconstruction; hence, the current syntax might deviate slightly.
 
-# Working with the config file for generating attributed variability models
-
-##### [UseCase]
-UseCase:
-The function that shall be performed. There are two different configuration files - one for each function - so this option must not be changed!
+#### Generating AVM
 
 ##### [AttributedModel]
 With_Variants:
@@ -150,10 +143,7 @@ The model does not use interactions. The objective value for features shall be w
 
 
 
-# Working with the config file for modifying attributed variability models
- ##### [UseCase]
-UseCase:
-The function that shall be performed. There are two different configuration files - one for each function - so this option must not be changed! 
+#### Modifying AVM
 
 #####  [Model]
 With_Variants:
@@ -309,7 +299,7 @@ ResultToSave:
 Specification for which results shall be saved. The default setting is "auto", which saves all results. It is also possible to just save the best result (overall-best) or use a custom weighting for the different objectives (custom).
 Possible Values: all, overall-best, custom
 
-# Trouble Shooting
+## Trouble Shooting
 There is the possibility of encountering the following error message with Anaconda, when running thor2:
 
 ```dask.async.IndexError: pop from empty list```
