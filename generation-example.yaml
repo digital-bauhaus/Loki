@@ -1,6 +1,6 @@
 AVM-Generation:
   NumberOfThreads: 5
-  DirectoryToSaveResults: /home/johannes/thor/
+  DirectoryToSaveResults: auto
   ResultsToBeSaved: overall-best
   ResultsCustomSpecs: [0.2, 0.2, 0.6]
   AttributedModel:
