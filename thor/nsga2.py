@@ -5,7 +5,6 @@ import os
 import random
 import sys
 from copy import deepcopy
-
 import numpy as np
 from scipy import stats as sps, spatial as spsp
 from sklearn.model_selection import GridSearchCV
@@ -19,9 +18,6 @@ class Nsga2:
         self.config = conf
         self.n_jobs = n_jobs
 
-    # ----------
-    # MAIN FUNCTION
-    # ----------
     def nsga2(self, avm_new, vm_new):
         """
         A function, which takes the given and estimated feature (and optional interaction) values,
@@ -77,8 +73,6 @@ class Nsga2:
             # feature_interaction_value_vector = concatenate(feature_influence_vals, interactions_list_pure)
         else:
             mean_ranges_features_influences = influence_range
-            # feature_interaction_value_vector = np.asmatrix(feature_influence_vals)
-        feature_interaction_value_vector = avm_new.get_feature_interaction_value_vector()
 
         # build initial population
         population = []
@@ -86,30 +80,15 @@ class Nsga2:
             # get initial values for estimated features
             feature_influences_vm_estimated = self.estimate_influences_with_kde(feature_influences_avm,
                                                                                 feature_influences_vm)
-            feature_values_vm_estimated = list(feature_influences_vm_estimated.values())
-
             vm_estimated = deepcopy(vm_new)
             vm_estimated.set_feature_influences(feature_influences_vm_estimated)
-
             # if provided: get initial values for estimated interactions
             if interaction_option:
                 interaction_influences_vm_estimated = self.estimate_influences_with_kde(interactions_influences_avm,
                                                                                         interactions_influences_vm)
-                interaction_values_vm_estimated = list(interaction_influences_vm_estimated.values())
-                # e_f_and_i = concatenate(feature_values_vm_estimated, interaction_values_vm_estimated)
-
                 vm_estimated.set_interaction_influences(interaction_influences_vm_estimated)
-            else:
-                # e_f_and_i = np.asmatrix(feature_values_vm_estimated)
-                pass
-
-            feature_interaction_value_vector_vm_estimated = vm_new.get_feature_interaction_value_vector()
 
             population.append(vm_estimated)
-            # if 'P' in locals():
-            #     P = np.vstack([P, e_f_and_i])
-            # else:
-            #     P = np.matrix(e_f_and_i)
 
         # TODO: not sure what this does
         upsize_kde_data_plot, upsize_kde_densities = kde(feature_influence_vals_avm, vm_new.get_feature_num())
@@ -138,14 +117,10 @@ class Nsga2:
 
         # initialize archive
         archive = list()
-
         while gen_no < max_gen and converge_counter < 3:
             print("Generation:", gen_no + 1)
-
             if len(archive) != 0:
                 population = [*population, *archive]
-
-            # compute objectives (similarities)
 
             def p_similarity_worker(s_f, vm_estimations):
                 pop_fitness = dict()
@@ -166,26 +141,11 @@ class Nsga2:
                     pop_fitness[vm_estimated] = fitness_tuple
                 return pop_fitness
 
-            # pool = ThreadPool()
-            # intervals = [int(round(x * (len(population) / number_of_threads))) for x in range(number_of_threads + 1)]
-            # s_f = list()
-            # for s, f in zip(intervals[:-1], intervals[1:]):
-            #     s_f.append([s, f])
-
-            # pool_fitness = pool.map(p_similarity_worker, s_f, population)
             gloabl_interval = [0, len(population)]
-            pool_fitness = p_similarity_worker(gloabl_interval, population)
-            # pool.close()
-            # pool.join()
-
-            pop_fitness = dict()
-            # for elem in pool_fitness:
-            #     pop_fitness.update(elem)
-            pop_fitness = {**pool_fitness}
-
+            # TODO run in parallel
+            pop_fitness = p_similarity_worker(gloabl_interval, population)
             ranks = front_rank_assignment(pop_fitness)
             best_front = {elem: pop_fitness[elem] for elem in ranks[0]}
-
             best, mean = compare_front_fitness(best_front)
             if best - old_best < 0.0 or mean - old_mean == 0:
                 converge_counter = converge_counter + 1
@@ -193,9 +153,7 @@ class Nsga2:
                 converge_counter = 0
             old_best = best
             old_mean = mean
-
             del archive[:]
-
             for i in range(0, len(ranks)):
                 if len(archive) + len(ranks[i]) >= archive_size:
                     sparsity_ordered_rank = order_by_sparsity(ranks[i], pop_fitness)
@@ -203,11 +161,9 @@ class Nsga2:
                     break
                 else:
                     archive.extend(ranks[i])
-
             archive_fitness = dict()
             for elem in archive:
                 archive_fitness[elem] = pop_fitness[elem]
-
             population = breed(archive_fitness, pop_size, mean_ranges_features_influences, self.config)
             gen_no = gen_no + 1
         return best_front
@@ -240,17 +196,13 @@ class Nsga2:
         converge_counter = 0
         old_best = 0.0
         old_mean = 0.0
-        avm_performances = avm_old.calc_performance_for_validation_variants()
-
         if str(self.config['NSGAII']['Maximum_Generations']) != "auto":
             try:
                 max_gen = int(self.config['NSGAII']['Maximum_Generations'])
             except:
                 sys.exit("Maximum_Generations must be an integer. Please check your configuration file!")
-
         if avm_old.uses_interactions():
             interaction_option = True
-
         if self.n_jobs != "auto":
             number_of_threads = int(self.n_jobs)
         else:
@@ -258,14 +210,12 @@ class Nsga2:
 
         # get list of features for attributed and non-attributed model
         feature_influences_avm = avm_old.get_feature_influences()
-        # feature_influences_vm = vm_new.get_feature_influences()
         feature_influence_vals_old_avm = list(feature_influences_avm.values())
         influence_range = max(feature_influence_vals_old_avm) - min(feature_influence_vals_old_avm)
 
         # if provided: get interactions for attributed and non-attributed model
         if interaction_option:
             interactions_influences_avm = avm_old.get_interaction_influences()
-            # interactions_influences_vm = vm_new.get_interaction_influences()
             interactions_values_avm = list(interactions_influences_avm.values())
             interaction_range_avm = max(interactions_values_avm) - min(interactions_values_avm)
             mean_ranges_features_influences = (influence_range + interaction_range_avm) / 2
@@ -278,68 +228,29 @@ class Nsga2:
         # build initial population
         population = []
         for i in range(pop_size):
-            # # get initial values for estimated features
-            # feature_influences_vm_estimated = self.estimate_influences_with_kde(feature_influences_avm,
-            #                                                                     feature_influences_vm)
-            # feature_values_vm_estimated = list(feature_influences_vm_estimated.values())
-            #
-            # vm_estimated = deepcopy(vm_new)
-            # vm_estimated.set_feature_influences(feature_influences_vm_estimated)
-
-            # if provided: get initial values for estimated interactions
             avm_modified = self.modify_model(avm_old)
-
-            # feature_interaction_value_vector_vm_estimated = vm_new.get_feature_interaction_value_vector()
-
             population.append(avm_modified)
-            # if 'P' in locals():
-            #     P = np.vstack([P, e_f_and_i])
-            # else:
-            #     P = np.matrix(e_f_and_i)
 
         # initialize archive
         archive = list()
-
         while gen_no < max_gen and converge_counter < 3:
             print("Generation:", gen_no + 1)
-
             if len(archive) != 0:
                 population = [*population, *archive]
 
-            # compute objectives (similarities)
-
             def p_similarity_worker(s_f, avm_estimations):
                 pop_fitness = {}
-                candidate_fitness = {}
                 for i in range(s_f[0], s_f[1]):
                     avm_estimated = avm_estimations[i]
-                    avm_estimated_features = list(avm_estimated.get_feature_influences().values())
-                    fitnesses = compute_fulfilled_objectives(avm_old, avm_modified,
-                                                             self.config)
-                    # candidate_fitness[avm_estimated] = fitnesses
+                    fitnesses = compute_fulfilled_objectives(avm_old, avm_modified, self.config)
                     pop_fitness[avm_estimated] = fitnesses
                 return pop_fitness
 
-            # pool = ThreadPool()
-            # intervals = [int(round(x * (len(population) / number_of_threads))) for x in range(number_of_threads + 1)]
-            # s_f = list()
-            # for s, f in zip(intervals[:-1], intervals[1:]):
-            #     s_f.append([s, f])
-
-            # pool_fitness = pool.map(p_similarity_worker, s_f, population)
+            # TODO make run parallel
             gloabl_interval = [0, len(population)]
-            pool_fitness = p_similarity_worker(gloabl_interval, population)
-            # pool.close()
-            # pool.join()
-
-            # pop_fitness = dict()
-            # for elem in pool_fitness:
-            #     pop_fitness.update(elem)
-            pop_fitness = {**pool_fitness}
-
+            pop_fitness = p_similarity_worker(gloabl_interval, population)
             ranks = front_rank_assignment(pop_fitness)
             best_front = {elem: pop_fitness[elem] for elem in ranks[0]}
-
             best, mean = compare_front_fitness(best_front)
             if best - old_best < 0.0 or mean - old_mean == 0:
                 converge_counter = converge_counter + 1
@@ -349,7 +260,6 @@ class Nsga2:
             old_mean = mean
 
             del archive[:]
-
             for i in range(0, len(ranks)):
                 if len(archive) + len(ranks[i]) >= archive_size:
                     sparsity_ordered_rank = order_by_sparsity(ranks[i], pop_fitness)
@@ -361,23 +271,17 @@ class Nsga2:
             archive_fitness = {}
             for elem in archive:
                 archive_fitness[elem] = pop_fitness[elem]
-
             population = breed_KT(archive_fitness, pop_size, self.config)
 
-            # modifies original avm with nno respect to neither population nor archive
+            # modifies original avm with no respect to neither population nor archive
             freshly_modified_models = []
             for n in range(0, pop_size, 2):
                 new_model = self.modify_model(avm_old)
                 freshly_modified_models.append(new_model)
 
             population.extend(freshly_modified_models)
-
             gen_no = gen_no + 1
         return best_front
-
-    # ----------
-    # ESTIMATE FEATURES
-    # ----------
 
     def estimate_influences_with_kde(self, avm_feature_influences, vm_feature_influences):
         """
@@ -390,16 +294,11 @@ class Nsga2:
         Returns: The new_data with estimated values for every key.
         """
 
-        # avm_feature_influences, vm_feature_influences = avm.get_feature_influences(), vm.get_feature_influences
         avm_values = list(avm_feature_influences.values())
 
         # performance relevance for features. Top 20% of values
         value_range = max(avm_values) - min(avm_values)
-        perf_rel_threshhold = min(avm_values) + Nsga2.PERFORMANCE_RELEVANCE_REL_THRESH * value_range
-        # amount_perf_rel = len([elem for elem in values if elem > perf_rel_threshhold])
-
         kde_data_plot, kde_densities = kde(avm_values, len(vm_feature_influences))
-
         for key in vm_feature_influences.keys():
             p = random.uniform(min(kde_densities),
                                max(kde_densities))  # Wert zw kleinster und größter Density
@@ -408,14 +307,10 @@ class Nsga2:
                                itertools.compress(kde_data_plot, selectors)]  # alle Werte, für die validen Densities
             index = random.randrange(len(valid_densities))
             new_val = valid_densities[index]
-            # vm_feature_influences[key] = kde_data_plot
             vm_feature_influences[key] = new_val
 
         return vm_feature_influences
 
-    # ---------
-    # NOISE
-    # ---------
     def noise(self, value_change, p, mu, sigma):
         """
         A function, which takes a candidate solution and adds noise to some of their elements.
@@ -458,9 +353,6 @@ class Nsga2:
         value_change = self.noise(value_change, p, mu, sigma)
         return value_change
 
-    # ---------
-    # LINEAR TRANSFORMATION
-    # ---------
     def linear_transformation(self, value_change, p):
         operation = str(self.config['Linear_Transformation']['Operation'])
         assert (operation in ["addition", "subtraction", "multiplication", "division"]), (
@@ -483,9 +375,6 @@ class Nsga2:
                 value_change[i] = j_new
         return value_change
 
-    # ---------
-    # NEGATION
-    # ---------
     def negation(self, value_change, p):
         for i, j in value_change.items():
             if p >= np.random.random_sample():
@@ -509,10 +398,6 @@ class Nsga2:
         feature_list_new = avm_modified.get_feature_influences()
         if avm_modified.uses_interactions():
             interactions_list_new = avm_modified.get_interaction_influences()
-
-        # ========================
-        # CHOSE DATA
-        # ========================
 
         # Features
         assert (str(
@@ -541,10 +426,6 @@ class Nsga2:
                 interactions_changes = most_influential(interactions_list_new, relevance_treshhold)
             else:
                 interactions_changes = interactions_list_new
-
-        # ========================
-        # MODIFY DATA
-        # ========================
 
         # if user wants to perform more than one data modification, the program will perform them in succession:
         for operation_id in change_operations:
@@ -600,20 +481,15 @@ def breed(population_objectives, pop_size, features_interactions_influence_range
             'fitness_proportionate_selection': fitness_proportionate_selection,
             'stochastic_universal_sampling': stochastic_universal_sampling
         }.get(choice)(population_objectives)
-        # Child_A, Child_B = Crossover(Parent_A, Parent_B, f_i_range)
-
         # TODO move mapping to more central place
         Child_A, Child_B = {
             'Line_Recombination': line_recombination,
             'simulated_binary_CO': sim_binary_co,
         }.get(choice_CO)(Parent_A, Parent_B, features_interactions_influence_range)
-
         offspring.append(Child_A)
         offspring.append(Child_B)
-
     while len(offspring) != pop_size:
         offspring = offspring[:-1]
-
     return offspring
 
 
@@ -633,9 +509,7 @@ def compute_similarities(data, e_data, config):
 
     np.warnings.filterwarnings('ignore')
     sim_results = list()
-
     sim_measures = list(config['NSGAII']['Similarity_Measures'])
-
     if "AD" in sim_measures:
         try:
             AD_result = sps.anderson_ksamp([data, e_data])
@@ -645,22 +519,17 @@ def compute_similarities(data, e_data, config):
                 sim_results.append(AD_result[-1])
         except Exception:
             pass
-
     if "PCC" in sim_measures:
         PCC_result = sps.pearsonr(data, e_data)
         sim_results.append(abs(PCC_result[0]))
-
     if "ED" in sim_measures:
         ED_result = spsp.distance.euclidean(data, e_data)
         ED_result = 1 / (ED_result + 1)
         sim_results.append(ED_result)
-
     if "KS" in sim_measures:
         KS_result = sps.ks_2samp(data, e_data)
         sim_results.append(1 - min(KS_result[0], 0))
-
     mean_similarity = sum(sim_results) / len(sim_results)
-
     return mean_similarity
 
 
@@ -677,16 +546,13 @@ def front_rank_assignment(population_fitness_dicts):  # works :D
     population_copy = population_fitness_dicts.copy()
     ranks = list()
     i = 0
-
     while len(population_copy) >= 1:
         ranks.append([])
         front_rank = non_dominated_search(population_copy)
         ranks[i].extend(front_rank)
         for elem in ranks[i]:
             del population_copy[elem]
-        # ranks[i] = [list(elem) for elem in ranks[i]]
         i = i + 1
-
     return ranks
 
 
@@ -710,18 +576,11 @@ def non_dominated_search(population_fitness_dicts):  # def non_dominated_search(
         for individual in front_copy:
             if pareto_dominates(population_fitness_dicts, individual, elem):
                 front_bool[front.index(elem)] = 1
-                # try:
-                # del Front[Front.index(elem)]
-                # except:
-                # pass
             elif pareto_dominates(population_fitness_dicts, elem, individual):
                 front_bool[front.index(individual)] = 1
-                # del Front[Front.index(individual)]
-
     for i in range(0, len(front)):
         if front_bool[i] == 0:
             true_front.append(front[i])
-
     return true_front
 
 
@@ -741,8 +600,7 @@ def pareto_dominates(population_fitness_dicts, candidate_a, candidate_b):  # wor
     for objective_id in range(len(list(population_fitness_dicts.values())[0])):
         if population_fitness_dicts[candidate_a][objective_id] > population_fitness_dicts[candidate_b][objective_id]:
             dominate = True
-        elif population_fitness_dicts[candidate_b][objective_id] > population_fitness_dicts[candidate_a][
-            objective_id]:
+        elif population_fitness_dicts[candidate_b][objective_id] > population_fitness_dicts[candidate_a][objective_id]:
             return False
     return dominate
 
@@ -769,6 +627,7 @@ def order_by_sparsity(candidate_solutions, pop_costs):
     objective_ids = list(objective_fitnesses[0])
     for obj_id in range(len(objective_ids)):
         pop_single_obj_fitnesses = [x[obj_id] for x in objective_fitnesses]
+        # TODO check ordering
         # pop_costs.sort(reverse=True)
         single_obj_sorted_candidates = [x for _, x in
                                         sorted(zip(pop_single_obj_fitnesses, candidate_solutions), reverse=True,
@@ -1039,8 +898,6 @@ def compute_fulfilled_objectives(avm, avm_modified, config):
         model_dict.update(interactions_dict)
         new_model_dict.update(new_interactions_dict)
 
-        # calculate fitness for all operations
-    # all_fitness = list()
     all_fitness = {}
     for operation in change_operations:
         fitness = {
@@ -1116,8 +973,8 @@ def noise_objective(new_model_dict, model_dict, p, sigma):
                  new_model_dict[elem] > model_dict[elem] + (model_dict[elem] * sigma)):
             differences = differences + 1
 
-    share_of_change = differences / len(list(model_dict.keys()))
-    noise_fitness = 1 - abs(p - share_of_change)
+    change_ratio = differences / len(list(model_dict.keys()))
+    noise_fitness = 1 - abs(p - change_ratio)
 
     return noise_fitness
 
@@ -1331,7 +1188,6 @@ def kde(data_list, size, bandwidth_=None):
     """
     if not bandwidth_:
         bandwidth_ = 'auto'
-    # bandwidth_ = config['Miscellaneous']['KDE_bandwidth']
     if str(bandwidth_) != "auto":
         auto_bandwith = False
         try:
@@ -1341,8 +1197,6 @@ def kde(data_list, size, bandwidth_=None):
     else:
         auto_bandwith = True
 
-    # data_np = np.reshape(data_list, (-1, 1))
-    # data_np = np.reshape(data_np, (-1, 1))
     data_np = np.atleast_2d(data_list).swapaxes(0, 1)
 
     # use grid search cross-validation to optimize the bandwidth

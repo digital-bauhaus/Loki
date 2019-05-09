@@ -1,28 +1,24 @@
-import yaml
-import seaborn as sns
-import numpy as np
-import os
-import datetime
-import sys
-import random
-import pycosat
-from random import shuffle
-import matplotlib.pyplot as plt
-from multiprocessing.dummy import Pool as ThreadPool
-import itertools
 import argparse
+import datetime
+import itertools
+import os
+import random
+import sys
+from multiprocessing.dummy import Pool as ThreadPool
+from random import shuffle
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pycosat
+import seaborn as sns
+import yaml
+
+from thor.nsga2 import Nsga2
 from thor.nsga2 import kde
-from thor.nsga2 import front_rank_assignment, order_by_sparsity, compute_fulfilled_objectives, breed_KT, \
-    most_influential, \
-    compare_front_fitness, Nsga2
+from shutil import copy
 
 sns.set()
 
-
-# ----------
-# CONCATENATE FEATURES AND INTERACTIONS
-# ----------
 
 def concatenate(list_a, list_b):
     """
@@ -45,17 +41,13 @@ def concatenate(list_a, list_b):
 
 
 class AvmGenerator:
-    def __init__(self, conf_yaml):
+    def __init__(self, conf_yaml, saver):
         self.config = conf_yaml
-        self.saver = Saver(self.config)
-
+        self.saver = saver
         # try:
         self.valid_variants_size = int(conf_yaml['Variants']['NumberOfVariants'])
         # except:
         #     sys.exit("NumberOfVariants must be an integer. Please check your configuration file!")
-
-        sampling_method = conf_yaml['Variants']['Sampling_Method']
-
         # GET ATTRIBUTES FROM CONFIG-FILE
         avm_yaml = conf_yaml['AttributedModel']
         vm_yaml = conf_yaml['NonAttributedModel']
@@ -70,10 +62,6 @@ class AvmGenerator:
         output_dir = self.saver.store_results(best_front_dict, self.avm)
         return output_dir
 
-    # ----------
-    # GENERATE INTERACTIONS
-    # ----------
-
     def optimize(self):
         print('START OPTIMIZING')
         if self.config['AttributedModel']['With_Variants']:
@@ -81,6 +69,7 @@ class AvmGenerator:
             print("Starting NSGA-II")
             nsga2_optimizer = Nsga2(self.config, self.n_jobs)
             best_front_dict = nsga2_optimizer.nsga2(self.avm, self.vm)
+        # TODO allow estimation only with KDE w/o genetic optimization
         # else:
         #     # Just KDE
         #     e_feature_list = estimation(feature_list, feature_list_for_estimation)
@@ -96,218 +85,37 @@ class AvmGenerator:
 
 
 class AvmModificator():
-    def __init__(self, conf_yaml):
+    def __init__(self, conf_yaml, saver):
         self.config = conf_yaml
-        self.saver = Saver(self.config)
-        # ========================
-        # GET ATTRIBUTES FROM CONFIG-FILE
-        # ========================
+        self.saver = saver
         avm_yaml = conf_yaml['AttributedModel']
-
         try:
             self.valid_variants_size = int(conf_yaml['Variants']['NumberOfVariants'])
         except:
             sys.exit("NumberOfVariants must be an integer. Please check your configuration file!")
-
-        # sampling_method = str(self.config['Variants']['Sampling_Method'])
         sampling_yaml = self.config['Variants']
         self.n_jobs = int(self.config['NumberOfThreads']) if 'NumberOfThreads' in self.config else Vm.DEFAULT_JOBS
         self.avm = Vm(avm_yaml, self.valid_variants_size, sampling_yaml, n_jobs=self.n_jobs, is_attributed=True)
         print('created AVM')
-        #
-        # # ========================
-        # # PREPARE FEATURE AND INTERACTION LISTS
-        # # ========================
-        # feature_list_pure = list(feature_list.values())
-        #
-        # if self.config['Model']['With_Interactions'] == True:
-        #     interactions_list_pure = list(interactions_list.values())
-        #     valid_complete_variants = append_interactions(valid_variants, feature_list, interactions_list)
-        #     f_and_i = concatenate(feature_list_pure, interactions_list_pure)
-        #     nsga_data = [feature_list, interactions_list]
-        # else:
-        #     valid_complete_variants = valid_variants
-        #     f_and_i = np.asmatrix(feature_list_pure)
-        #     nsga_data = [feature_list]
 
     def optimize(self):
-        # ========================
-        # START OPTIMIZING
-        # ========================
         print("Starting NSGA-II")
-
         nsga2_optimizer = Nsga2(self.config, self.n_jobs)
-
         best_front_dict = nsga2_optimizer.nsga2_KT(self.avm)
-        # BestFront_dict = self.nsga2_KT(nsga_data, valid_complete_variants, conf_yaml)
         return best_front_dict
 
     def run(self):
         best_front_dict = self.optimize()
-        # ========================
-        # COMMON AND DEAD FEATURES
-        # ========================
-        if 'Find_common_and_dead_features' in self.config['Search_Space'] and self.config['Search_Space'][
-            'Find_common_and_dead_features']:
-            bad_regions = self.avm.bad_region()
-            print(bad_regions)
-
-            # ========================
-        # CREATE COHERENT DATASET
-        # ========================
-        fitness_scores = {curr_avm: curr_avm.calc_performance_for_validation_variants() for curr_avm in best_front_dict}
-        # if self.avm.get_interaction_influences() is not None:
-        #     old_data = [feature_list_pure, interactions_list_pure, fitness_scores]
-        # else:
-        #     old_data = [feature_list_pure, fitness_scores]
         best_front_dict_no_obj_names = {}
         for vm in best_front_dict:
             best_front_dict_no_obj_names[vm] = list(best_front_dict[vm])
-
-        output_dir = self.saver.store_results(best_front_dict_no_obj_names, self.avm)
+        output_dir = self.saver.store_results_modification(best_front_dict_no_obj_names, self.avm)
         return output_dir
 
 
 class AvmComparison:
     def __init__(self):
         pass
-
-    def plotting_KT(self, old_data, new_data, filepath, config):
-        """
-        A function which takes the original and modified features, interactions and fitness values and compares them with them help of plot diagrams
-
-        Args:
-            old_data (list): A list that contains the feature values (dict), if provided interaction values (dict) and the fitness values/costs of the original data
-            new_data (list): A list that contains the feature values (dict), if provided interaction values (dict) and the fitness values/costs of the modified data
-
-        """
-        # instantiating stuff
-        try:
-            amount_bins = int(config['KDE']['NumberOfBins'])
-        except:
-            sys.exit("NumberOfBins must be an integer. Please check your configuration file!")
-
-        # PREPARE THE DATA
-        # feature values
-        old_F = old_data[0]
-        new_F = new_data[0]
-        kde_old_F = kde(old_F, len(old_data[0]))
-        kde_new_F = kde(new_F, len(new_data[0]))
-        bin_old_F = np.linspace(min(old_F), max(old_F), amount_bins)
-        bin_new_F = bin_old_F
-
-        # variant fitness values
-        old_V = old_data[-1]
-        new_V = new_data[-1]
-        kde_old_V = kde(old_V, old_data[-1].size)
-        kde_new_V = kde(new_V, new_data[-1].size)
-        bin_old_V = np.linspace(old_V[old_V != 0].min(), old_V[old_V != 0].max(), amount_bins)
-        bin_new_V = bin_old_V
-
-        if str(config['Model']['With_Interactions']) == "True":
-            # real interaction values
-            old_I = list(old_data[1])
-            new_I = list(new_data[1])
-            kde_old_I = kde(old_I, len(old_data[1]))
-            kde_new_I = kde(new_I, len(new_data[1]))
-            bin_old_I = np.linspace(min(old_I), max(old_I), amount_bins)
-            bin_new_I = np.linspace(min(new_I), max(new_I), amount_bins)
-
-        # INITIALIZE PLOT
-        if str(config['Model']['With_Interactions']) == "True":
-            fig = plt.figure(figsize=(30, 30))
-            oF = fig.add_subplot(331)
-            nF = fig.add_subplot(332)
-            F = fig.add_subplot(333)
-
-            oI = fig.add_subplot(334)
-            nI = fig.add_subplot(335)
-            I = fig.add_subplot(336)
-
-            oV = fig.add_subplot(337)
-            nV = fig.add_subplot(338)
-            V = fig.add_subplot(339)
-
-        if str(config['Model']['With_Interactions']) == "False":
-            fig = plt.figure(figsize=(30, 20))
-            oF = fig.add_subplot(231)
-            nF = fig.add_subplot(232)
-            F = fig.add_subplot(233)
-
-            oV = fig.add_subplot(234)
-            nV = fig.add_subplot(235)
-            V = fig.add_subplot(236)
-
-            # PLOT THE DATA
-        oF.set_title("old feature values")
-        oF.hist(old_F, bins=bin_old_F, fc="#a58a66", density=True, alpha=0.5)
-        oF.plot(kde_old_F[0][:, 0], kde_old_F[1], linewidth=2, color="#ba824c", alpha=1)
-        oF.set_xlabel('value')
-        oF.set_ylabel('density')
-
-        nF.set_title("new feature values")
-        nF.hist(new_F, bins=bin_new_F, fc="#669ba5", density=True, alpha=0.5)
-        nF.plot(kde_new_F[0][:, 0], kde_new_F[1], linewidth=2, color="#43676d", alpha=1)
-        nF.set_xlabel('value')
-        nF.set_ylabel('density')
-
-        F.set_title("old and new feature values")
-        F.hist(new_F, bins=bin_new_F, fc="#a58a66", density=True, alpha=0.5)
-        F.hist(old_F, bins=bin_old_F, fc="#669ba5", density=True, alpha=0.5)
-        F.plot(kde_new_F[0][:, 0], kde_new_F[1], linewidth=2, color="#43676d", alpha=1)
-        F.plot(kde_old_F[0][:, 0], kde_old_F[1], linewidth=2, color="#ba824c", alpha=1)
-        F.set_xlabel('value')
-        F.set_ylabel('density')
-
-        #######
-        if str(config['Model']['With_Interactions']) == "True":
-            oI.set_title("old interaction values")
-            oI.hist(old_I, bins=bin_old_I, fc="#a58a66", density=True, alpha=0.5)
-            oI.plot(kde_old_I[0][:, 0], kde_old_I[1], linewidth=2, color="#ba824c", alpha=1)
-            oI.set_xlabel('value')
-            oI.set_ylabel('density')
-
-            nI.set_title("new interaction values")
-            nI.hist(new_I, bins=bin_new_I, fc="#669ba5", density=True, alpha=0.5)
-            nI.plot(kde_new_I[0][:, 0], kde_new_I[1], linewidth=2, color="#43676d", alpha=1)
-            nI.set_xlabel('value')
-            nI.set_ylabel('density')
-
-            I.set_title("old and new interaction values")
-            I.hist(old_I, bins=bin_old_I, fc="#a58a66", density=True, alpha=0.5)
-            I.hist(new_I, bins=bin_new_I, fc="#669ba5", density=True, alpha=0.5)
-            I.plot(kde_old_I[0][:, 0], kde_old_I[1], linewidth=2, color="#ba824c", alpha=1)
-            I.plot(kde_new_I[0][:, 0], kde_new_I[1], linewidth=2, color="#43676d", alpha=1)
-            I.set_xlabel('value')
-            I.set_ylabel('density')
-
-        ######
-
-        oV.set_title("old variant values")
-        oV.hist(old_V, bins=bin_old_V, fc="#a58a66", density=True, alpha=0.5)
-        oV.plot(kde_old_V[0][:, 0], kde_old_V[1], linewidth=2, color="#ba824c", alpha=1)
-        oV.set_xlabel('value')
-        oV.set_ylabel('density')
-
-        nV.set_title("new variant values")
-        nV.hist(new_V, bins=bin_new_V, fc="#669ba5", density=True, alpha=0.5)
-        nV.plot(kde_new_V[0][:, 0], kde_new_V[1], linewidth=2, color="#43676d", alpha=1)
-        nV.set_xlabel('value')
-        nV.set_ylabel('density')
-
-        V.set_title("old and new variant values")
-        V.hist(old_V, bins=bin_old_V, fc="#a58a66", density=True, alpha=0.5)
-        V.hist(new_V, bins=bin_new_V, fc="#669ba5", density=True, alpha=0.5)
-        V.plot(kde_old_V[0][:, 0], kde_old_V[1], linewidth=2, color="#ba824c", alpha=2)
-        V.plot(kde_new_V[0][:, 0], kde_new_V[1], linewidth=2, color="#43676d", alpha=2)
-        V.set_xlabel('value')
-        V.set_ylabel('density')
-
-        # save the plot
-        plt.savefig(filepath + '/plots.png', bbox_inches='tight')
-        plt.savefig(filepath + '/plots.pdf', bbox_inches='tight')
-        plt.clf()
-        plt.close()
 
 
 class Vm:
@@ -329,10 +137,6 @@ class Vm:
         feature_influence_file = yml['Feature-file']
         self.constraints = self.parse_dimacs(dimacs_path)
         self.feature_influences = self.parsing_text(feature_influence_file) if feature_influence_file else None
-        # ========================
-        # USE CONSTRAINTS TO GENERATE VALID VARIANTS
-        print('USE CONSTRAINTS TO GENERATE VALID VARIANTS')
-        # ========================
 
         # TODO: uniform interface
 
@@ -363,10 +167,7 @@ class Vm:
 
             self.interactions_specs = yml['New_Interactions_Specs'] if 'New_Interactions_Specs' in yml else None
             if self.interactions_specs:
-                # try:
-                self.interactions_specs = list(map(int, self.interactions_specs))
-                # except:
-                #     sys.exit("Interaction_Specs must be a sequence of integers. Please check your configuration file!")
+                self.intgeractions_specs = list(map(int, self.interactions_specs))
                 self.interactions_influence = self.new_interactions(self.constraints,
                                                                     self.feature_influences,
                                                                     self.interactions_specs, self.n_jobs)
@@ -519,31 +320,24 @@ class Vm:
         Returns:
             A numpy matrix with variants, which satisfy the provided constrains. Each row represents one variant.
         """
-
         new_c = constraint_list.copy()
-
         perm_method = self.perm_method
-
         assert (perm_method in ["complete", "clauses", "no_permutation"]), (
             "Options for Permutation_Method are: complete, clauses, no_permutation")
         assert (self.sampling_method in ["random", "feature-wise", "pair-wise", "neg-feature-wise", "neg-pair-wise"]), (
             "Options for Sampling_Method are: random, feature-wise, neg-feature-wise, pair-wise, neg-pair-wise")
-
         sampling = {
             'feature-wise': lambda x, i, j: x.append([i]),
             'pair-wise': lambda x, i, j: x.extend([[i], [j]]),
             'neg-feature-wise': lambda x, i, j: x.append([-(i)]),
             'neg-pair-wise': lambda x, i, j: x.extend([[-i], [-j]])
         }.get(self.sampling_method)
-
         sol_collection = list()
-
         # substract root feature
         largest_dimacs_literal = len(feature_influences) - 1
         if not np.any([largest_dimacs_literal in sub_list for sub_list in constraint_list]):
             dummy_constraint = [largest_dimacs_literal, -1 * largest_dimacs_literal]
             new_c.append(dummy_constraint)
-
         if perm_method == "no_permutation" and self.sampling_method == "random":
             solutions = list(itertools.islice(pycosat.itersolve(new_c), size))
             for elem in solutions:
@@ -565,52 +359,8 @@ class Vm:
                     new_c.append([j * -1 for j in solution])
                     solution = Vm.transform2binary(solution)
                     sol_collection.append(solution)
-
         m_sol_list = np.asmatrix(sol_collection)
-
         return m_sol_list
-
-    # # TODO
-    # def calc_fitness_values(self, f_and_i, valid_complete_variants):
-    #     # ========================
-    #     # CALCULATE THE FITNESS OF THE AVM FOR EVERY VALID VARIANT
-    #     # ========================
-    #     print('CALCULATE THE FITNESS OF THE AVM FOR EVERY VALID VARIANT')
-    #     fitness_scores = self.calc_performance(valid_complete_variants, f_and_i, f_and_i.shape[1])
-    #     self..append(fitness_scores)
-
-    # def prepare_features_interactions(self, ):
-    #     #
-    #     # PREPARE FEATURE AND INTERACTION LISTS
-    #     print('PREPARE FEATURE AND INTERACTION LISTS')
-    #
-    #     if self.is_attributed:
-    #         if self.using_interactions:
-    #             # avm = [feature_list, interactions_list]
-    #         else:
-    #             # avm = [feature_list]
-    #             # nsga_data = [feature_list, feature_list_for_estimation]
-    #
-    #     else:
-    #         if self.using_interactions:
-    #             e_valid_complete_variants = self.annotate_interaction_coverage(valid_variants_for_estimation,
-    #                                                                            feature_list_for_estimation,
-    #                                                                            interaction_list_for_estimation)
-    #
-    #
-    #             avm = [feature_list, interactions_list]
-    #             nsga_data = [feature_list, feature_list_for_estimation, interactions_list,
-    #                          interaction_list_for_estimation]
-    #         else:
-    #             e_valid_complete_variants = valid_variants_for_estimation
-    #
-    #             f_and_i = np.asmatrix(feature_list_pure)
-    #             avm = [feature_list]
-    #             nsga_data = [feature_list, feature_list_for_estimation]
-    #
-    #
-    #     return avm, e_valid_complete_variants, f_and_i, interaction_list_for_estimation, nsga_data,\
-    #            valid_complete_variants
 
     # check if interaction is true and false for at least one variant,
     # as well as if the interaction members are true and false in at least one variant
@@ -628,23 +378,17 @@ class Vm:
             True, if the interaction can occure in at least one but not all variants
             False, if the interaction can't occure or if the features are dependent on eachother
         """
-
         constrains = list(c)
-
         for elem in random_features:
             index = list(f.keys()).index(elem)
             constrains.append([index])
-
         if pycosat.solve(constrains) == "UNSAT":
             return False
-
         constrains = list(c)
         index = list(-list(f.keys()).index(elem) for elem in random_features)
         constrains.append(index)
-
         if pycosat.solve(constrains) == "UNSAT":
             return False
-
         return True
 
     def get_feature_and_influence_vector(self):
@@ -671,12 +415,10 @@ class Vm:
         total_amount = specs[0]
         interaction_ratio = list(specs[1::2])
         interaction_degree = list(specs[2::2])
-
         all_new_interactions = dict()
         splitted_new_interactions = dict()
         for elem in interaction_degree:
             splitted_new_interactions["dict" + str(elem)] = {}
-
         if n_jobs > 0:
             number_of_threads = n_jobs
         else:
@@ -684,7 +426,7 @@ class Vm:
 
         # some sweet, sweet error handling:
         assert (sum(interaction_ratio) == 100), (
-            "The interaction ratios must sum up to 100. Currently they sum up to: ", sum(interaction_dist))
+            "The interaction ratios must sum up to 100. Currently they sum up to: ", sum(interaction_ratio))
 
         def worker(amount):
             new_interactions = dict()
@@ -711,8 +453,7 @@ class Vm:
             # return new_interactions
 
         pool = ThreadPool()
-        l = [total_amount] * (number_of_threads)
-
+        l = [total_amount] * number_of_threads
         pool.map(worker, l)
 
         for elem in range(len(interaction_degree)):
@@ -721,12 +462,9 @@ class Vm:
                 rchoice = random.choice(list(splitted_new_interactions["dict" + str(interaction_degree[elem])].keys()))
                 del splitted_new_interactions["dict" + str(interaction_degree[elem])][rchoice]
             all_new_interactions.update(splitted_new_interactions["dict" + str(interaction_degree[elem])])
-
         pool.close()
         pool.join()
-
         print("Finished with creating interactions")
-
         return all_new_interactions
 
     def parsing_text(self, m):
@@ -742,7 +480,6 @@ class Vm:
 
         """
         features = dict()
-
         with open(m) as ffile:
             for line in ffile:
                 line = line.replace("\n", "")
@@ -765,7 +502,6 @@ class Vm:
 
         """
         cnf = list()
-
         with open(m) as ffile:
             for line in ffile:
                 line = line.replace("\n", "")
@@ -812,7 +548,6 @@ class Vm:
             Each row represents one variant and its interactions information.
 
         """
-
         valid_interaction = np.array([[1]])
 
         def check_for_interaction(row):
@@ -828,12 +563,7 @@ class Vm:
             return row
 
         variants = np.apply_along_axis(check_for_interaction, axis=1, arr=variants)
-
         return variants
-
-    # ----------
-    # PERFORMANCE CALCULATION
-    # ----------
 
     def calc_performance(self, variants):
         """
@@ -859,10 +589,6 @@ class Vm:
         m_fitness = m_fitness.ravel()
         return m_fitness
 
-    # ----------
-    # PERFORMANCE CALCULATION
-    # ----------
-
     def calc_performance_for_validation_variants(self):
         """
         A function to calculate the fitness/cost (depending on the model's application area) of all previously computed variants.
@@ -875,26 +601,12 @@ class Vm:
         """
         # variants = self.valid_variants
         variants = self.valid_complete_variants
-        feature_and_influence_vector = self.get_feature_and_influence_vector()
-        root = np.ravel(feature_and_influence_vector)[0]
-        variants = np.transpose(variants)
-        # len_ratio = len_f_and_i / feature_and_influence_vector.shape[1]
-        feature_and_influence_vector = np.delete(feature_and_influence_vector, 0, 1)
-        m_fitness = np.dot(feature_and_influence_vector, variants)
-        # if len_ratio != 1:
-        #     m_fitness = m_fitness * len_ratio
-        m_fitness = np.add(m_fitness, root)
-        m_fitness = np.asarray(m_fitness)
-        m_fitness = m_fitness.ravel()
-
+        m_fitness = self.calc_performance(variants)
         return m_fitness
 
 
 def main():
     random.seed()
-    # ========================
-    # GET LOCATION OF CONFIG-FILE
-    # ========================
     parser = argparse.ArgumentParser(description='Thor2')
     parser.add_argument('path', metavar='config file path', type=str, help="the config's file path")
     args = parser.parse_args()
@@ -907,27 +619,17 @@ def main():
         cfg = yml_cfg[use_case_str]
         print(cfg)
         print("Performing ", use_case_str)
-
-        n_jobs = cfg["NumberOfThreads"]
-        result_choice = cfg["ResultsToBeSaved"]
-        custom_result_specs = cfg["ResultsCustomSpecs"] if "ResultsCustomSpecs" in cfg else None
-        output_dir = cfg["DirectoryToSaveResults"] if "DirectoryToSaveResults" in cfg else None
-
-        avm_settings = cfg['AttributedModel']
-        dimacs_file = avm_settings['DIMACS-file']
-        feature_file = avm_settings['Feature-file']
-
-        # avm = Vm(dimacs_file, feature_file, )
-
         if use_case_str == "AVM-Generation":
-            avmgGen = AvmGenerator(cfg)
-            output_path = avmgGen.run()
+            saver = Saver(cfg, config_location, "AVM-Generation")
+            avmg_gen = AvmGenerator(cfg, saver)
+            output_path = avmg_gen.run()
             print("The program terminated as expected.")
             print("Results saved to {}".format(output_path))
 
         elif use_case_str == "AVM-Modification":
-            avmMod = AvmModificator(cfg)
-            output_path = avmMod.run()
+            saver = Saver(cfg, config_location, "AVM-Modification")
+            avm_mod = AvmModificator(cfg, saver)
+            output_path = avm_mod.run()
             print("The program terminated as expected.")
             print("Results saved to {}".format(output_path))
         else:
@@ -940,12 +642,22 @@ def main():
 
 
 class Saver:
-    def __init__(self, config):
+    def __init__(self, config, config_location=None, result_prefix=None):
         self.config = config
+        self.config_location = config_location
+        if str(self.config['DirectoryToSaveResults']) != "auto":
+            self.directory = str(self.config['DirectoryToSaveResults'])
+        else:
+            if not result_prefix:
+                result_prefix = "Misc"
+            time_template = "{}-results/{}-results-%Y-%m-%d_%H%M%S".format(result_prefix, result_prefix)
+            self.directory = datetime.datetime.now().strftime(time_template)
+        if not os.path.exists(self.directory):
+            os.makedirs(self.directory)
 
-    # ----------
-    # WRITING TO FILE
-    # ----------
+    def copy_conf_doc(self):
+        if self.config_location:
+            copy(self.config_location, self.directory)
 
     def store_text(self, directory, dump_str, filename):
         """
@@ -956,18 +668,12 @@ class Saver:
             old_data (dict): The dict with feature/interaction names
             new_data (dict): The dict with new/estimated feature/interaction values
             filename (str): Name for the new file
-
         """
         # TODO clean up os directory methods
-        new_file = directory + "/" + filename + ".txt"
-
+        new_file = os.path.join(directory, filename + ".txt")
         print("Storing to {}".format(new_file))
         with open(new_file, 'w') as ffile:
             ffile.write(dump_str)
-
-    # ----------
-    # PLOTTING
-    # ----------
 
     def store_plot(self, avm, vm, filepath):
         """
@@ -980,7 +686,6 @@ class Saver:
 
         """
 
-        # instantiating stuff
         try:
             amount_bins = int(self.config['KDE']['NumberOfBins'])
         except:
@@ -1011,7 +716,7 @@ class Saver:
             bin_I = np.linspace(min(values_rI), max(values_rI), amount_bins)
             bin_eI = np.linspace(min(values_eI), max(values_eI), amount_bins)
 
-            # INITIALIZE PLOT
+        # INITIALIZE PLOT
         if with_interactions:
             fig = plt.figure(figsize=(30, 30))
             rF = fig.add_subplot(331)
@@ -1073,7 +778,6 @@ class Saver:
                     alpha=0.1)
             eI.set_xlabel('value')
             eI.set_ylabel('density')
-
         ######
 
         rV.set_title("real Variants")
@@ -1096,9 +800,178 @@ class Saver:
         # save the plot
         plt.savefig(filepath + 'plots.png', bbox_inches='tight')
         plt.savefig(filepath + 'plots.pdf', bbox_inches='tight')
+        plt.clf()
+        plt.close()
 
-        # show the plot
-        # plt.show()
+    def store_plot_KT(self, avm_old, avm_estimated, filepath):
+        """
+        A function which takes the original and modified features, interactions and fitness values and compares them with them help of plot diagrams
+
+        Args:
+            old_data (list): A list that contains the feature values (dict), if provided interaction values (dict) and the fitness values/costs of the original data
+            new_data (list): A list that contains the feature values (dict), if provided interaction values (dict) and the fitness values/costs of the modified data
+
+        """
+        try:
+            amount_bins = int(self.config['KDE']['NumberOfBins'])
+        except:
+            sys.exit("NumberOfBins must be an integer. Please check your configuration file!")
+
+        color_code_old = "#009bb4"
+        color_code_new = "#b71a49"
+
+        old_F = list(avm_old.get_feature_influences().values())
+        new_F = list(avm_estimated.get_feature_influences().values())
+        kde_old_F = kde(old_F, len(old_F))
+        kde_new_F = kde(new_F, len(new_F))
+        bin_old_F = np.linspace(min(old_F), max(old_F), amount_bins)
+        bin_new_F = np.linspace(min(new_F), max(new_F), amount_bins)
+
+        # variant fitness values
+        old_V = avm_old.calc_performance_for_validation_variants()
+        new_V = avm_estimated.calc_performance_for_validation_variants()
+        kde_old_V = kde(old_V, len(old_V))
+        kde_new_V = kde(new_V, len(new_V))
+        bin_old_V = np.linspace(old_V[old_V != 0].min(), old_V[old_V != 0].max(), amount_bins)
+        bin_new_V = bin_old_V
+
+        with_interactions = avm_old.get_interaction_influences() is not None
+        if with_interactions:
+            # real interaction values
+            old_I = list(avm_old.get_interaction_influences().values())
+            new_I = list(avm_estimated.get_interaction_influences().values())
+            kde_old_I = kde(old_I, len(old_I))
+            kde_new_I = kde(new_I, len(new_I))
+            bin_old_I = np.linspace(min(old_I), max(old_I), amount_bins)
+            bin_new_I = np.linspace(min(new_I), max(new_I), amount_bins)
+
+            # INITIALIZE PLOT        if with_interactions:
+            fig = plt.figure(figsize=(40, 30))
+            ax_old_features = fig.add_subplot(3, 4, 1)
+            ax_new_features = fig.add_subplot(3, 4, 2)
+            ax_mixed_features = fig.add_subplot(3, 4, 3)
+            ax_jointplot_features = fig.add_subplot(3, 4, 4)
+
+            ax_old_interactions = fig.add_subplot(3, 4, 5)
+            ax_new_interactions = fig.add_subplot(3, 4, 6)
+            ax_mixed_interactions = fig.add_subplot(3, 4, 7)
+            ax_jointplot_interactions = fig.add_subplot(3, 4, 8)
+
+            ax_old_variants = fig.add_subplot(3, 4, 9)
+            ax_new_variants = fig.add_subplot(3, 4, 10)
+            ax_mixed_variants = fig.add_subplot(3, 4, 11)
+            ax_jointplot_variants = fig.add_subplot(3, 4, 12)
+
+        else:  # not with_interactions:
+            fig = plt.figure(figsize=(40, 20))
+            ax_old_features = fig.add_subplot(2, 4, 1)
+            ax_new_features = fig.add_subplot(2, 4, 2)
+            ax_mixed_features = fig.add_subplot(2, 4, 3)
+            ax_jointplot_features = fig.add_subplot(3, 4, 4)
+
+            ax_old_variants = fig.add_subplot(2, 4, 5)
+            ax_new_variants = fig.add_subplot(2, 4, 6)
+            ax_mixed_variants = fig.add_subplot(2, 4, 7)
+            ax_jointplot_variants = fig.add_subplot(3, 4, 8)
+
+            # PLOT THE DATA
+        ax_old_features.set_title("old feature values")
+        hist_opacity = 0.4
+        kde_opacity = 0.75
+        kde_line_width = 3
+        ax_old_features.hist(old_F, bins=bin_old_F, fc=color_code_old, density=True, alpha=hist_opacity)
+        plot = ax_old_features.plot(kde_old_F[0][:, 0], kde_old_F[1], linewidth=kde_line_width, color=color_code_old,
+                                    alpha=kde_opacity)
+        ax_old_features.set_xlabel('value')
+        ax_old_features.set_ylabel('density')
+
+        ax_new_features.set_title("new feature values")
+        ax_new_features.hist(new_F, bins=bin_new_F, fc=color_code_new, density=True, alpha=hist_opacity)
+        ax_new_features.plot(kde_new_F[0][:, 0], kde_new_F[1], linewidth=kde_line_width, color=color_code_new,
+                             alpha=kde_opacity)
+        ax_new_features.set_xlabel('value')
+        ax_new_features.set_ylabel('density')
+
+        ax_mixed_features.set_title("old and new feature values")
+        ax_mixed_features.hist(new_F, bins=bin_new_F, fc=color_code_old, density=True, alpha=hist_opacity)
+        ax_mixed_features.hist(old_F, bins=bin_old_F, fc=color_code_new, density=True, alpha=hist_opacity)
+        ax_mixed_features.plot(kde_new_F[0][:, 0], kde_new_F[1], linewidth=kde_line_width, color=color_code_new,
+                               alpha=kde_opacity)
+        ax_mixed_features.plot(kde_old_F[0][:, 0], kde_old_F[1], linewidth=kde_line_width, color=color_code_old,
+                               alpha=kde_opacity)
+        ax_mixed_features.set_xlabel('value')
+        ax_mixed_features.set_ylabel('density')
+
+        ax_jointplot_features.set_title("jointplot of old and new feature values")
+        ax_jointplot_features.scatter(old_F, new_F)
+        ax_jointplot_features.set_xlabel('old value')
+        ax_jointplot_features.set_ylabel('new value')
+
+        #######
+        if with_interactions:
+            ax_old_interactions.set_title("old interaction values")
+            ax_old_interactions.hist(old_I, bins=bin_old_I, fc=color_code_old, density=True, alpha=hist_opacity)
+            ax_old_interactions.plot(kde_old_I[0][:, 0], kde_old_I[1], linewidth=kde_line_width, color=color_code_old,
+                                     alpha=kde_opacity)
+            ax_old_interactions.set_xlabel('value')
+            ax_old_interactions.set_ylabel('density')
+
+            ax_new_interactions.set_title("new interaction values")
+            ax_new_interactions.hist(new_I, bins=bin_new_I, fc=color_code_new, density=True, alpha=hist_opacity)
+            ax_new_interactions.plot(kde_new_I[0][:, 0], kde_new_I[1], linewidth=kde_line_width, color=color_code_new,
+                                     alpha=kde_opacity)
+            ax_new_interactions.set_xlabel('value')
+            ax_new_interactions.set_ylabel('density')
+
+            ax_mixed_interactions.set_title("old and new interaction values")
+            ax_mixed_interactions.hist(old_I, bins=bin_old_I, fc=color_code_old, density=True, alpha=hist_opacity)
+            ax_mixed_interactions.hist(new_I, bins=bin_new_I, fc=color_code_new, density=True, alpha=hist_opacity)
+            ax_mixed_interactions.plot(kde_old_I[0][:, 0], kde_old_I[1], linewidth=kde_line_width, color=color_code_old,
+                                       alpha=kde_opacity)
+            ax_mixed_interactions.plot(kde_new_I[0][:, 0], kde_new_I[1], linewidth=kde_line_width, color=color_code_new,
+                                       alpha=kde_opacity)
+            ax_mixed_interactions.set_xlabel('value')
+            ax_mixed_interactions.set_ylabel('density')
+
+            ax_jointplot_interactions.set_title("jointplot of old and new interaction values")
+            ax_jointplot_interactions.scatter(old_I, new_I)
+            ax_jointplot_interactions.set_xlabel('old value')
+            ax_jointplot_interactions.set_ylabel('new value')
+
+        ######
+
+        ax_old_variants.set_title("old variant values")
+        ax_old_variants.hist(old_V, bins=bin_old_V, fc=color_code_old, density=True, alpha=hist_opacity)
+        ax_old_variants.plot(kde_old_V[0][:, 0], kde_old_V[1], linewidth=kde_line_width, color=color_code_old,
+                             alpha=kde_opacity)
+        ax_old_variants.set_xlabel('value')
+        ax_old_variants.set_ylabel('density')
+
+        ax_new_variants.set_title("new variant values")
+        ax_new_variants.hist(new_V, bins=bin_new_V, fc=color_code_new, density=True, alpha=hist_opacity)
+        ax_new_variants.plot(kde_new_V[0][:, 0], kde_new_V[1], linewidth=kde_line_width, color=color_code_new,
+                             alpha=kde_opacity)
+        ax_new_variants.set_xlabel('value')
+        ax_new_variants.set_ylabel('density')
+
+        ax_mixed_variants.set_title("old and new variant values")
+        ax_mixed_variants.hist(old_V, bins=bin_old_V, fc=color_code_old, density=True, alpha=hist_opacity)
+        ax_mixed_variants.hist(new_V, bins=bin_new_V, fc=color_code_new, density=True, alpha=hist_opacity)
+        ax_mixed_variants.plot(kde_old_V[0][:, 0], kde_old_V[1], linewidth=kde_line_width, color=color_code_old,
+                               alpha=kde_opacity)
+        ax_mixed_variants.plot(kde_new_V[0][:, 0], kde_new_V[1], linewidth=kde_line_width, color=color_code_new,
+                               alpha=kde_opacity)
+        ax_mixed_variants.set_xlabel('value')
+        ax_mixed_variants.set_ylabel('density')
+
+        ax_jointplot_variants.set_title("jointplot of old and new variant values")
+        ax_jointplot_variants.scatter(old_V, new_V)
+        ax_jointplot_variants.set_xlabel('old value')
+        ax_jointplot_variants.set_ylabel('new value')
+
+        # save the plot
+        plt.savefig(filepath + '/plots.png', bbox_inches='tight')
+        plt.savefig(filepath + '/plots.pdf', bbox_inches='tight')
         plt.clf()
         plt.close()
 
@@ -1117,9 +990,7 @@ class Saver:
             for solution, values in best_front__dict.items():
                 if values == maximum:
                     best_front = [solution]
-
         elif results_to_be_saved == "custom":
-
             def weighted_sum(obj, specs):
                 weighted = 0
                 for i in range(0, len(obj)):
@@ -1134,17 +1005,12 @@ class Saver:
             for solution, values in best_front__dict.items():
                 if values == maximum:
                     best_front = [solution]
-
         return best_front
 
     def store_results(self, best_front_dict, avm):
-        # ========================
-        # SAVE THE RESULTS
-        # ========================
         conf_yaml = self.config
         print("Finished with calculating results")
         print("Start saving results")
-        # define name and path of the directory
         if str(conf_yaml['DirectoryToSaveResults']) != "auto":
             directory = str(conf_yaml['DirectoryToSaveResults'])
         else:
@@ -1155,57 +1021,22 @@ class Saver:
         result_selection = conf_yaml["ResultsToBeSaved"]
         result_custom_specs = conf_yaml["ResultsCustomSpecs"] if "ResultsCustomSpecs" in conf_yaml else None
         best_front = self.define_results(best_front_dict, result_selection, result_custom_specs)
-        # save results
-        for i, cur_vm in enumerate(best_front):
-            if not os.path.exists(directory + "/result" + str(i + 1)):
-                os.makedirs(directory + "/result" + str(i + 1))
-            # write results into a txt-file:
-            filedirectory = directory + "/result" + str(i + 1)
 
-            # cur_vm = best_front[i]
-            e_feature_list = cur_vm.get_feature_influences()
-            # vm = list([e_feature_list])
-            e_interactions_list = cur_vm.get_interaction_influences()  # may be None
-            e_fitness_scores = cur_vm.calc_performance_for_validation_variants()
-            # vm.append(e_fitness_scores)
+        for i, cur_vm in enumerate(best_front):
+            result_dir = os.path.join(directory, "result" + str(i + 1))
+            if not os.path.exists(result_dir):
+                os.makedirs(result_dir)
+            filedirectory = result_dir
 
             self.store_text(filedirectory, cur_vm.get_feature_dump(), "new_features")
-            if e_interactions_list is not None:
+            if cur_vm.uses_interactions() is not None:
                 self.store_text(filedirectory, cur_vm.get_interaction_dump(), "new_interactions")
 
-            # PLOTTING, SO WE CAN LOOK AT SOMETHING
             self.store_plot(avm, cur_vm, filedirectory + "/")
         print("Finished with saving results")
         return os.path.abspath(filedirectory)
 
-    def store_results_modification(self, best_front_dict, avm):
-        #     # save results
-        #     feature_list_pure_new = BestFront[i][:len(feature_list_pure)]
-        #     writing_text(filedirectory + "/", feature_list, feature_list_pure_new, "new_features")
-        #     if self.config['Model']['With_Interactions'] == True:
-        #         interactions_list_pure_new = BestFront[i][len(feature_list_pure):]
-        #         f_and_i_new = concatenate(feature_list_pure_new, interactions_list_pure_new)
-        #         writing_text(filedirectory + "/", interactions_list, interactions_list_pure_new, "new_interactions")
-        #     else:
-        #         f_and_i_new = np.asmatrix(feature_list_pure_new)
-        #
-        #     fitness_scores_new = performance(valid_complete_variants, f_and_i_new, f_and_i.shape[1])
-        #
-        #     if self.config['Model']['With_Interactions'] == True:
-        #         new_data = [feature_list_pure_new, interactions_list_pure_new, fitness_scores_new]
-        #     else:
-        #         new_data = [feature_list_pure_new, fitness_scores_new]
-        #
-        #     if self.config['Search_Space']['Find_bad_regions'] == True:
-        #         f = open(directory + "/bad_regions.txt", "w+")
-        #         f.write(', '.join(map(str, np.array(bad_regions))))
-        #         f.close()
-        #
-        #     # PLOTTING, SO WE CAN LOOK AT SOMETHING
-        #     plotting_KT(old_data, new_data, filedirectory + "/")
-        #
-        # print("Finished with saving results")
-
+    def store_results_modification(self, best_front_dict, avm_old):
         conf_yaml = self.config
         print("Finished with calculating results")
         print("Start saving results")
@@ -1213,7 +1044,7 @@ class Saver:
         if str(conf_yaml['DirectoryToSaveResults']) != "auto":
             directory = str(conf_yaml['DirectoryToSaveResults'])
         else:
-            directory = datetime.datetime.now().strftime("AVM-Generation_Results/Gen_results-%Y-%m-%d_%H%M%S")
+            directory = datetime.datetime.now().strftime("AVM-Modification_results/Gen_results-%Y-%m-%d_%H%M%S")
         if not os.path.exists(directory):
             os.makedirs(directory)
         # define results to be saved
@@ -1222,21 +1053,24 @@ class Saver:
         best_front = self.define_results(best_front_dict, result_selection, result_custom_specs)
         # save results
         for i, cur_vm in enumerate(best_front):
-            if not os.path.exists(directory + "/result" + str(i + 1)):
-                os.makedirs(directory + "/result" + str(i + 1))
-            # write results into a txt-file:
-            filedirectory = directory + "/result" + str(i + 1)
-            # cur_vm = best_front[i]
-            e_feature_list = cur_vm.get_feature_influences()
-            # vm = list([e_feature_list])
+            result_dir = os.path.join(directory, "result" + str(i + 1))
+            if not os.path.exists(result_dir):
+                os.makedirs(result_dir)
+            filedirectory = result_dir
             e_interactions_list = cur_vm.get_interaction_influences()  # may be None
-            e_fitness_scores = cur_vm.calc_performance_for_validation_variants()
-            # vm.append(e_fitness_scores)
             self.store_text(filedirectory, cur_vm.get_feature_dump(), "new_features")
             if e_interactions_list is not None:
                 self.store_text(filedirectory, cur_vm.get_interaction_dump(), "new_interactions")
-            # PLOTTING, SO WE CAN LOOK AT SOMETHING
-            self.store_plot(avm, cur_vm, filedirectory + "/")
+            if 'Find_common_and_dead_features' in self.config['Search_Space'] and self.config['Search_Space'][
+                'Find_common_and_dead_features']:
+                bad_regions = cur_vm.bad_region()
+                txt_path = os.path.join(result_dir, "bad_regions.txt")
+                f = open(txt_path, "w+")
+                bad_region_str = str(os.linesep).join(map(str, np.array(bad_regions)))
+                f.write(bad_region_str)
+                f.close()
+            self.store_plot_KT(avm_old, cur_vm, filedirectory + "/")
+
         print("Finished with saving results")
         return os.path.abspath(filedirectory)
 
