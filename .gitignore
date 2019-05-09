@@ -126,7 +126,7 @@ dmypy.json
 .idea/
 
 # Thor default results dir
-*AVM*Results/
+*[Rr]esults/
 
 #Thor configs except example configs
 *.yaml
