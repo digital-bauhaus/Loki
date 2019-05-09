@@ -506,9 +506,9 @@ class Nsga2:
                 sys.exit("Probability for Noise_small, Noise_big, Linear_Transformation and Negation must be float. "
                          "Please check your configuration file!")
 
-        feature_list_new = avm.get_feature_influences()
-        if avm.uses_interactions():
-            interactions_list_new = avm.get_interaction_influences()
+        feature_list_new = avm_modified.get_feature_influences()
+        if avm_modified.uses_interactions():
+            interactions_list_new = avm_modified.get_interaction_influences()
 
         # ========================
         # CHOSE DATA
@@ -529,7 +529,7 @@ class Nsga2:
             feature_changes = feature_list_new
 
         # Interactions
-        if avm.uses_interactions():
+        if avm_modified.uses_interactions():
             assert (str(self.config['Scope_for_Changes']['Change_Interaction']) in ["all", "most-influential",
                                                                                     "none"]), (
                 "Options for Change_Interaction are: all, most-influential, none")
@@ -558,7 +558,7 @@ class Nsga2:
 
                 feature_list_new.update(feature_changes)
 
-            if avm.uses_interactions() and self.config['Scope_for_Changes']['Change_Interaction'] != "none":
+            if avm_modified.uses_interactions() and self.config['Scope_for_Changes']['Change_Interaction'] != "none":
                 interactions_changes = {
                     'Noise_small': self.noise_small,
                     'Noise_big': self.noise_big,
