@@ -15,29 +15,12 @@ import yaml
 
 from thor.nsga2 import Nsga2
 from thor.nsga2 import kde
+import thor.thoravm as thoravm
 from shutil import copy
+import inspect
+from thor.thoravm import ThorAvm
 
 sns.set()
-
-
-def concatenate(list_a, list_b):
-    """
-    A function to convert two lists into arrays and concatenate them.
-    
-    Args:
-        list_a (list): Values for all features.
-        list_b (list): Values for all interactions.
-        
-    Returns:
-        An array with the concatenated feature and interaction values.
-    
-    """
-    m_f = np.asarray(list_a)
-    m_i = np.asarray(list_b)
-    f_and_i = np.append(m_f, m_i)
-    f_and_i = np.asmatrix(f_and_i)
-
-    return f_and_i
 
 
 class AvmGenerator:
@@ -60,6 +43,7 @@ class AvmGenerator:
     def run(self):
         best_front_dict = self.optimize()
         output_dir = self.saver.store_results(best_front_dict, self.avm)
+        self.saver.copy_aux_files()
         return output_dir
 
     def optimize(self):
@@ -110,6 +94,7 @@ class AvmModificator():
         for vm in best_front_dict:
             best_front_dict_no_obj_names[vm] = list(best_front_dict[vm])
         output_dir = self.saver.store_results_modification(best_front_dict_no_obj_names, self.avm)
+        self.saver.copy_aux_files()
         return output_dir
 
 
@@ -118,41 +103,40 @@ class AvmComparison:
         pass
 
 
-class Vm:
+class Vm(ThorAvm):
     DEFAULT_JOBS = 1
 
     def __init__(self, yml, variant_set_size, sampling_yaml, is_attributed=False, using_interactions=False,
                  n_jobs=-1):
-        self.variant_set_size = variant_set_size
-        self.is_attributed = is_attributed
-        self.yml = yml
+        feature_influence_file = yml['Feature-file']
         dimacs_path = yml['DIMACS-file']
+        if 'Interactions-file' in yml:
+            interactions_influence_file = yml['Interactions-file']
+        else:
+            interactions_influence_file = None
+        super(Vm, self).__init__(dimacs_path, feature_influence_file, interactions_influence_file)
+        self.is_attributed = is_attributed
+        self.variant_set_size = variant_set_size
+        self.yml = yml
         self.n_jobs = n_jobs
-        sampling_method = sampling_yaml['Sampling_Method']
-        self.sampling_method = sampling_method
+        self.sampling_method = sampling_yaml['Sampling_Method']
         self.num_variants = sampling_yaml['NumberOfVariants']
         self.perm_method = sampling_yaml['Permutation_Method'] if 'Permutation_Method' in sampling_yaml else None
         # self.is_attributed = False if 'New_Interactions_Specs' in yml else False
 
-        feature_influence_file = yml['Feature-file']
-        self.constraints = self.parse_dimacs(dimacs_path)
-        self.feature_influences = self.parsing_text(feature_influence_file) if feature_influence_file else None
-
         # TODO: uniform interface
 
-        if sampling_method != "random":
-            self.valid_variants = self.get_valid_variants(self.constraints, len(self.feature_influences.keys()) - 1,
-                                                          self.feature_influences)
+        if self.sampling_method != "random":
+            self.valid_variants = self.get_valid_variants(len(self.feature_influences.keys()) - 1)
         else:
-            self.valid_variants = self.get_valid_variants(self.constraints, self.variant_set_size,
-                                                          self.feature_influences)
+            self.valid_variants = self.get_valid_variants(self.variant_set_size)
 
         if is_attributed:
             self.interactions_specs = None
             if 'Interactions-file' in yml:
                 # implies is_attributed == True
-                interactions_influence_file = yml['Interactions-file']
-                self.interactions_influence = self.parsing_text(
+                # interactions_influence_file = yml['Interactions-file']
+                self.interactions_influence = self.parse_influence_text(
                     interactions_influence_file) if interactions_influence_file else None
 
                 self.valid_complete_variants = self.annotate_interaction_coverage(self.valid_variants,
@@ -176,35 +160,9 @@ class Vm:
                                                                                   self.feature_influences,
                                                                                   self.interactions_influence)
             else:
-                self.interactions_influence = None
                 self.valid_complete_variants = self.valid_variants
 
         print("initialized Vm")
-
-    def bad_region(self):
-        """
-        A function which tries to find bad regions in a SAT problems search space.
-
-        Args:
-            self
-
-        Returns:
-            List of Features and their setting, which result in unsatisfied assignments for the SAT
-        """
-        bad_regions = []
-        num_features = len(self.get_feature_influences())
-        constraint_list = self.constraints
-        for i in range(1, num_features + 1):
-            c_copy = list(constraint_list)
-            c_copy.append([i])
-            if pycosat.solve(c_copy) == "UNSAT":
-                bad_regions.append(-i)
-
-            c_copy = list(constraint_list)
-            c_copy.append([-i])
-            if pycosat.solve(c_copy) == "UNSAT":
-                bad_regions.append(i)
-        return bad_regions
 
     def set_feature_influence(self, name, influence):
         self.feature_influences[name] = influence
@@ -212,48 +170,11 @@ class Vm:
     def set_interaction_influence(self, name, influence):
         self.interactions_influence[name] = influence
 
-    def get_feature_influence(self, name):
-        return self.feature_influences[name]
-
-    def get_interaction_influence(self, name):
-        return self.interactions_influence[name]
-
-    def get_feature_influences(self):
-        return self.feature_influences
-
-    def get_interaction_influences(self):
-        return self.interactions_influence
-
     def set_feature_influences(self, feature_influcences):
         self.feature_influences = feature_influcences
 
     def set_interaction_influences(self, interactions_influence):
         self.interactions_influence = interactions_influence
-
-    def get_feature_num(self):
-        return len(self.feature_influences)
-
-    def get_interaction_num(self):
-        if self.interactions_influence:
-            n = self.interactions_influence
-        else:
-            n = self.interactions_specs
-        return len(n)
-
-    def uses_interactions(self):
-        specified_inderactions = self.interactions_influence is not None
-        specs_annotated = self.interactions_specs is not None
-        result = specified_inderactions or specs_annotated
-        return result
-
-    def get_feature_interaction_value_vector(self):
-        feature_influence_vals = list(self.get_feature_influences().values())
-        if self.interactions_influence:
-            interactions_list_pure = list(self.get_interaction_influences().values())
-            feature_interaction_value_vector = concatenate(feature_influence_vals, interactions_list_pure)
-        else:
-            feature_interaction_value_vector = np.asmatrix(feature_influence_vals)
-        return feature_interaction_value_vector
 
     def set_feature_interaction_value_vector(self, feature_interaction_value_vector):
         i = 0
@@ -265,6 +186,13 @@ class Vm:
             for key in self.get_interaction_influences():
                 self.set_interaction_influence(key, feature_interaction_value_list[i])
                 i += 1
+
+    def get_interaction_num(self):
+        if self.interactions_specs:
+            n = self.interactions_specs
+        else:
+            n = super(Vm, self).get_interaction_num()
+        return len(n)
 
     def get_feature_dump(self):
         lines = []
@@ -282,34 +210,7 @@ class Vm:
         dump_str = str(os.linesep).join(lines)
         return dump_str
 
-    def parse_dimacs(self, path):
-        """
-        A function to parse a provided DIMACS-file.
-
-        Args:
-            path (str): The DIMACS-file's file path
-
-        Returns:
-            A list of lists containing all of the DIMACS-file's constrains. Each constrain is represented by a seperate sub-list.
-
-        """
-        dimacs = list()
-        dimacs.append(list())
-        with open(path) as mfile:
-            for line in mfile:
-                tokens = line.split()
-                if len(tokens) != 0 and tokens[0] not in ("p", "c"):
-                    for tok in tokens:
-                        lit = int(tok)
-                        if lit == 0:
-                            dimacs.append(list())
-                        else:
-                            dimacs[-1].append(lit)
-        assert len(dimacs[-1]) == 0
-        dimacs.pop()
-        return dimacs
-
-    def get_valid_variants(self, constraint_list, size, feature_influences):
+    def get_valid_variants(self, size):
         """
         A function to compute the valid variants of a model.
 
@@ -320,7 +221,7 @@ class Vm:
         Returns:
             A numpy matrix with variants, which satisfy the provided constrains. Each row represents one variant.
         """
-        new_c = constraint_list.copy()
+        new_c = self.constraints.copy()
         perm_method = self.perm_method
         assert (perm_method in ["complete", "clauses", "no_permutation"]), (
             "Options for Permutation_Method are: complete, clauses, no_permutation")
@@ -334,8 +235,8 @@ class Vm:
         }.get(self.sampling_method)
         sol_collection = list()
         # substract root feature
-        largest_dimacs_literal = len(feature_influences) - 1
-        if not np.any([largest_dimacs_literal in sub_list for sub_list in constraint_list]):
+        largest_dimacs_literal = len(self.feature_influences) - 1
+        if not np.any([largest_dimacs_literal in sub_list for sub_list in self.constraints]):
             dummy_constraint = [largest_dimacs_literal, -1 * largest_dimacs_literal]
             new_c.append(dummy_constraint)
         if perm_method == "no_permutation" and self.sampling_method == "random":
@@ -390,15 +291,6 @@ class Vm:
         if pycosat.solve(constrains) == "UNSAT":
             return False
         return True
-
-    def get_feature_and_influence_vector(self):
-        feature_list_pure = list(self.feature_influences.values())
-        if self.interactions_influence:
-            interactions_list_pure = list(self.interactions_influence.values())
-            feature_and_influence_vector = concatenate(feature_list_pure, interactions_list_pure)
-        else:
-            feature_and_influence_vector = np.asmatrix(feature_list_pure)
-        return feature_and_influence_vector
 
     def new_interactions(self, constraint_list, f, specs, n_jobs):
         """
@@ -467,69 +359,9 @@ class Vm:
         print("Finished with creating interactions")
         return all_new_interactions
 
-    def parsing_text(self, m):
-        """
-        A function to parse a provided text-file containing a model's features or interactions.
-
-        Args:
-            m (str): The text-file's file path
-
-        Returns:
-            When parsing a feature file: a dictionary with the features' names as keys and the features' values as values.
-            When parsing an interactions file: a dictionary with tuples of features concatenated by # as keys and the tuples' values as values.
-
-        """
-        features = dict()
-        with open(m) as ffile:
-            for line in ffile:
-                line = line.replace("\n", "")
-                tokens = line.split(": ")
-                if len(tokens[-1]) > 0 and len(tokens) > 1:
-                    features[tokens[0]] = float(tokens[-1])
-                else:
-                    features[tokens[0]] = ""
-        return features
-
-    def parsing_variants(self, m):
-        """
-        A function to parse a provided text-file containing a model's variants.
-
-        Args:
-            m (str): The text-file's file path
-
-        Returns:
-            A list of lists containing all variants. Each variant is represented by a seperate sub-list.
-
-        """
-        cnf = list()
-        with open(m) as ffile:
-            for line in ffile:
-                line = line.replace("\n", "")
-                line = [int(i) for i in list(line)]
-                if len(line) > 0:
-                    cnf.append(line)
-        return cnf
-
     # ----------
     # HELPER FUNCTIONS
     # ----------
-    @staticmethod
-    def transform2binary(sol):
-        """
-        A function which takes a valid variant, consisting of positive and negative integers and transforming it into binary values
-        Args:
-            sol (list): A list that contains one valid variant, represented by positve and negative integers
-
-        Returns:
-            A list that contains the valid variants transformed into binary, where negative integers are now represented as 0 and positive integers as 1
-        """
-        sol = sorted(sol, key=abs)
-        for index, elem in enumerate(sol):
-            if float(elem) < 0:
-                sol[index] = 0
-            else:
-                sol[index] = 1
-        return sol
 
     def annotate_interaction_coverage(self, variants, feature_influences, interaction_influences):
         """
@@ -565,30 +397,6 @@ class Vm:
         variants = np.apply_along_axis(check_for_interaction, axis=1, arr=variants)
         return variants
 
-    def calc_performance(self, variants):
-        """
-        A function to calculate the fitness/cost (depending on the model's application area) of all previously computed variants.
-
-        Args:
-            variants (numpy matrix): All previously computed variants with information about which interaction they satisfy
-            f_and_i (numpy matrix): The provided or estimated values for all features and interactions
-
-        Returns:
-            An array of all variant fitnesses/costs.
-        """
-        feature_and_influence_vector = self.get_feature_and_influence_vector()
-        root = np.ravel(feature_and_influence_vector)[0]
-        variants = np.transpose(variants)
-        # len_ratio = len_f_and_i / feature_and_influence_vector.shape[1]
-        feature_and_influence_vector = np.delete(feature_and_influence_vector, 0, 1)
-        m_fitness = np.dot(feature_and_influence_vector, variants)
-        # if len_ratio != 1:
-        #     m_fitness = m_fitness * len_ratio
-        m_fitness = np.add(m_fitness, root)
-        m_fitness = np.asarray(m_fitness)
-        m_fitness = m_fitness.ravel()
-        return m_fitness
-
     def calc_performance_for_validation_variants(self):
         """
         A function to calculate the fitness/cost (depending on the model's application area) of all previously computed variants.
@@ -621,8 +429,9 @@ def main():
         print("Performing ", use_case_str)
         if use_case_str == "AVM-Generation":
             saver = Saver(cfg, config_location, "AVM-Generation")
-            avmg_gen = AvmGenerator(cfg, saver)
-            output_path = avmg_gen.run()
+            avm_gen = AvmGenerator(cfg, saver)
+            avm_gen.run()
+            output_path = saver.directory
             print("The program terminated as expected.")
             print("Results saved to {}".format(output_path))
 
@@ -654,10 +463,24 @@ class Saver:
             self.directory = datetime.datetime.now().strftime(time_template)
         if not os.path.exists(self.directory):
             os.makedirs(self.directory)
+        self.dimacs_path = self.find_dimacs_path()
+
+    def find_dimacs_path(self):
+        config_path = self.config["AttributedModel"]["DIMACS-file"]
+        return config_path
 
     def copy_conf_doc(self):
         if self.config_location:
             copy(self.config_location, self.directory)
+
+    def copy_template_files(self):
+        copy(self.dimacs_path, self.directory)
+        thor_avm_original_path = inspect.getfile(thoravm)
+        copy(thor_avm_original_path, self.directory)
+
+    def copy_aux_files(self):
+        self.copy_conf_doc()
+        self.copy_template_files()
 
     def store_text(self, directory, dump_str, filename):
         """
@@ -1011,56 +834,42 @@ class Saver:
         conf_yaml = self.config
         print("Finished with calculating results")
         print("Start saving results")
-        if str(conf_yaml['DirectoryToSaveResults']) != "auto":
-            directory = str(conf_yaml['DirectoryToSaveResults'])
-        else:
-            directory = datetime.datetime.now().strftime("AVM-Generation_Results/Gen_results-%Y-%m-%d_%H%M%S")
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+
         # define results to be saved
         result_selection = conf_yaml["ResultsToBeSaved"]
         result_custom_specs = conf_yaml["ResultsCustomSpecs"] if "ResultsCustomSpecs" in conf_yaml else None
         best_front = self.define_results(best_front_dict, result_selection, result_custom_specs)
-
         for i, cur_vm in enumerate(best_front):
-            result_dir = os.path.join(directory, "result" + str(i + 1))
+            result_dir = os.path.join(self.directory, "result" + str(i + 1))
             if not os.path.exists(result_dir):
                 os.makedirs(result_dir)
-            filedirectory = result_dir
 
-            self.store_text(filedirectory, cur_vm.get_feature_dump(), "new_features")
+            self.store_text(result_dir, cur_vm.get_feature_dump(), "new_features")
             if cur_vm.uses_interactions() is not None:
-                self.store_text(filedirectory, cur_vm.get_interaction_dump(), "new_interactions")
+                self.store_text(result_dir, cur_vm.get_interaction_dump(), "new_interactions")
 
-            self.store_plot(avm, cur_vm, filedirectory + "/")
+            self.store_plot(avm, cur_vm, result_dir)
         print("Finished with saving results")
-        return os.path.abspath(filedirectory)
+        return os.path.abspath(result_dir)
 
     def store_results_modification(self, best_front_dict, avm_old):
         conf_yaml = self.config
         print("Finished with calculating results")
         print("Start saving results")
-        # define name and path of the directory
-        if str(conf_yaml['DirectoryToSaveResults']) != "auto":
-            directory = str(conf_yaml['DirectoryToSaveResults'])
-        else:
-            directory = datetime.datetime.now().strftime("AVM-Modification_results/Gen_results-%Y-%m-%d_%H%M%S")
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+
         # define results to be saved
         result_selection = conf_yaml["ResultsToBeSaved"]
         result_custom_specs = conf_yaml["ResultsCustomSpecs"] if "ResultsCustomSpecs" in conf_yaml else None
         best_front = self.define_results(best_front_dict, result_selection, result_custom_specs)
         # save results
         for i, cur_vm in enumerate(best_front):
-            result_dir = os.path.join(directory, "result" + str(i + 1))
+            result_dir = os.path.join(self.directory, "result" + str(i + 1))
             if not os.path.exists(result_dir):
                 os.makedirs(result_dir)
-            filedirectory = result_dir
             e_interactions_list = cur_vm.get_interaction_influences()  # may be None
-            self.store_text(filedirectory, cur_vm.get_feature_dump(), "new_features")
+            self.store_text(result_dir, cur_vm.get_feature_dump(), "new_features")
             if e_interactions_list is not None:
-                self.store_text(filedirectory, cur_vm.get_interaction_dump(), "new_interactions")
+                self.store_text(result_dir, cur_vm.get_interaction_dump(), "new_interactions")
             if 'Find_common_and_dead_features' in self.config['Search_Space'] and self.config['Search_Space'][
                 'Find_common_and_dead_features']:
                 bad_regions = cur_vm.bad_region()
@@ -1069,10 +878,10 @@ class Saver:
                 bad_region_str = str(os.linesep).join(map(str, np.array(bad_regions)))
                 f.write(bad_region_str)
                 f.close()
-            self.store_plot_KT(avm_old, cur_vm, filedirectory + "/")
+            self.store_plot_KT(avm_old, cur_vm, result_dir)
 
         print("Finished with saving results")
-        return os.path.abspath(filedirectory)
+        return os.path.abspath(result_dir)
 
 
 if __name__ == "__main__":
