@@ -196,6 +196,8 @@ class Nsga2:
         converge_counter = 0
         old_best = 0.0
         old_mean = 0.0
+
+        avm_performances = avm_old.calc_performance_for_validation_variants()
         if str(self.config['NSGAII']['Maximum_Generations']) != "auto":
             try:
                 max_gen = int(self.config['NSGAII']['Maximum_Generations'])
@@ -243,7 +245,9 @@ class Nsga2:
                 for i in range(s_f[0], s_f[1]):
                     avm_estimated = avm_estimations[i]
                     fitnesses = compute_fulfilled_objectives(avm_old, avm_modified, self.config)
-                    pop_fitness[avm_estimated] = fitnesses
+                    performances_vm_estimated = avm_estimated.calc_performance_for_validation_variants()
+                    variant_fitness = compute_similarities(avm_performances, performances_vm_estimated, self.config)
+                    pop_fitness[avm_estimated] = [*fitnesses, variant_fitness]
                 return pop_fitness
 
             # TODO make run parallel
@@ -966,16 +970,13 @@ def noise_big_objective(new_model_dict, model_dict, p, config):
 
 def noise_objective(new_model_dict, model_dict, p, sigma):
     differences = 0
-
     for elem in list(new_model_dict.keys()):
         if new_model_dict[elem] != model_dict[elem] and \
-                (new_model_dict[elem] < model_dict[elem] + (model_dict[elem] * sigma) or \
+                (new_model_dict[elem] < model_dict[elem] - (model_dict[elem] * sigma) or
                  new_model_dict[elem] > model_dict[elem] + (model_dict[elem] * sigma)):
             differences = differences + 1
-
     change_ratio = differences / len(list(model_dict.keys()))
     noise_fitness = 1 - abs(p - change_ratio)
-
     return noise_fitness
 
 
@@ -983,7 +984,6 @@ def linear_transformation_objective(new_model_dict, model_dict, p, config):
     differences = 0
     operation = str(config['Linear_Transformation']['Operation'])
     operand = float(config['Linear_Transformation']['Operand'])
-
     transform = {
         'addition': lambda x: x + x * operand,
         'substraction': lambda x: x - x * operand,
@@ -996,21 +996,18 @@ def linear_transformation_objective(new_model_dict, model_dict, p, config):
         if new_model_dict[elem] != model_dict[elem] and \
                 (new_elem == new_model_dict[elem]):
             differences = differences + 1
-    share_of_change = differences / len(list(model_dict.keys()))
-    lin_trans_fitness = 1 - abs(p - share_of_change)
-
+    change_ratio = differences / len(list(model_dict.keys()))
+    lin_trans_fitness = 1 - abs(p - change_ratio)
     return lin_trans_fitness
 
 
 def negation_objective(new_model_dict, model_dict, p, config):
     differences = 0
-
     for elem in list(new_model_dict.keys()):
         if new_model_dict[elem] == model_dict[elem] * -1:
             differences = differences + 1
-    share_of_change = differences / len(list(model_dict.keys()))
-    negation_fitness = 1 - abs(p - share_of_change)
-
+    change_ratio = differences / len(list(model_dict.keys()))
+    negation_fitness = 1 - abs(p - change_ratio)
     return negation_fitness
 
 
@@ -1174,7 +1171,7 @@ def compare_front_fitness(front):
     return Max_Fitness, Mean_Fitness
 
 
-def kde(data_list, size, bandwidth_=None):
+def kde(data_list, size, bandwidth_=None, cv=3):
     """
     A function which to perform a kernel density estimation.
 
@@ -1201,8 +1198,10 @@ def kde(data_list, size, bandwidth_=None):
 
     # use grid search cross-validation to optimize the bandwidth
     if auto_bandwith:
-        params = {'bandwidth': np.logspace(-1, 1, 20)}
-        grid = GridSearchCV(KernelDensity(), params)
+        params = {
+            'bandwidth': np.logspace(-1, 1, 20)
+        }
+        grid = GridSearchCV(KernelDensity(), params, cv=cv, )
         grid.fit(data_np)
         bandwidth = grid.best_estimator_.bandwidth
     else:
