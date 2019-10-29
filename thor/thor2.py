@@ -6,6 +6,7 @@ import random
 import sys
 from multiprocessing.dummy import Pool as ThreadPool
 from random import shuffle
+import pickle
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -79,12 +80,15 @@ class AvmModificator():
             sys.exit("NumberOfVariants must be an integer. Please check your configuration file!")
         sampling_yaml = self.config['Variants']
         self.n_jobs = int(self.config['NumberOfThreads']) if 'NumberOfThreads' in self.config else Vm.DEFAULT_JOBS
+        self.random = int(self.config['RndSeed']) if 'RndSeed' in self.config else None
+        np.random.seed(self.random)
+        self.nsga2_rnd = int(2 ** 32 - 1)
         self.avm = Vm(avm_yaml, self.valid_variants_size, sampling_yaml, n_jobs=self.n_jobs, is_attributed=True)
         print('created AVM')
 
     def optimize(self):
         print("Starting NSGA-II")
-        nsga2_optimizer = Nsga2(self.config, self.n_jobs)
+        nsga2_optimizer = Nsga2(self.config, self.n_jobs, seed=self.nsga2_rnd)
         best_front_dict = nsga2_optimizer.nsga2_KT(self.avm)
         return best_front_dict
 
@@ -498,6 +502,14 @@ class Saver:
         with open(new_file, 'w') as ffile:
             ffile.write(dump_str)
 
+    def store_dict(self, directory, f_name, obj):
+        new_file = os.path.join(directory, f_name + ".p")
+        # file_pickle = os.path.join(current_folder, 'results-{}.p'.format(f_name_clean))
+        with open(new_file, 'wb') as f:
+            pickle.dump(obj, f)
+        abs_path = os.path.abspath(new_file)
+        return abs_path
+
     def store_plot(self, avm, vm, filepath):
         """
         A function which takes the given and estimated feature, interaction and fitness values and compares them with them help of plot diagrams
@@ -642,13 +654,17 @@ class Saver:
 
         color_code_old = "#009bb4"
         color_code_new = "#b71a49"
+        plot_dict = {}
 
+        # plotting features
         old_F = list(avm_old.get_feature_influences().values())
         new_F = list(avm_estimated.get_feature_influences().values())
         kde_old_F = kde(old_F, len(old_F))
         kde_new_F = kde(new_F, len(new_F))
         bin_old_F = np.linspace(min(old_F), max(old_F), amount_bins)
         bin_new_F = np.linspace(min(new_F), max(new_F), amount_bins)
+        plot_dict["old_F"] = old_F
+        plot_dict["new_F"] = new_F
 
         # variant fitness values
         old_V = avm_old.calc_performance_for_validation_variants()
@@ -656,7 +672,9 @@ class Saver:
         kde_old_V = kde(old_V, len(old_V))
         kde_new_V = kde(new_V, len(new_V))
         bin_old_V = np.linspace(old_V[old_V != 0].min(), old_V[old_V != 0].max(), amount_bins)
-        bin_new_V = bin_old_V
+        bin_new_V = np.linspace(new_V[new_V != 0].min(), new_V[new_V != 0].max(), amount_bins)
+        plot_dict["old_V"] = old_V
+        plot_dict["new_V"] = new_V
 
         with_interactions = avm_old.get_interaction_influences() is not None
         if with_interactions:
@@ -667,6 +685,8 @@ class Saver:
             kde_new_I = kde(new_I, len(new_I))
             bin_old_I = np.linspace(min(old_I), max(old_I), amount_bins)
             bin_new_I = np.linspace(min(new_I), max(new_I), amount_bins)
+            plot_dict["old_I"] = old_I
+            plot_dict["new_I"] = new_I
 
             # INITIALIZE PLOT        if with_interactions:
             fig = plt.figure(figsize=(40, 30))
@@ -797,6 +817,7 @@ class Saver:
         plt.savefig(filepath + '/plots.pdf', bbox_inches='tight')
         plt.clf()
         plt.close()
+        self.store_dict(filepath, "plot-data", plot_dict)
 
     def define_results(self, best_front__dict, results_to_be_saved, results_custom_specs=None):
         assert (results_to_be_saved in ["all", "overall-best", "custom"]), (
