@@ -247,10 +247,8 @@ class Nsga2:
                 pop_fitness = {}
                 for i in range(s_f[0], s_f[1]):
                     avm_estimated = avm_estimations[i]
-                    fitnesses = compute_fulfilled_objectives(avm_old, avm_modified, self.config)
-                    performances_vm_estimated = avm_estimated.calc_performance_for_validation_variants()
-                    variant_fitness = compute_similarities(avm_performances, performances_vm_estimated, self.config)
-                    pop_fitness[avm_estimated] = [*fitnesses, variant_fitness]
+                    fitnesses = compute_fulfilled_objectives(avm_old, avm_estimated, self.config, avm_performances)
+                    pop_fitness[avm_estimated] = fitnesses
                 return pop_fitness
 
             # TODO make run parallel
@@ -875,7 +873,7 @@ def find_item_in_several_lists(my_list, item):
     return [(ind, my_list[ind].index(item)) for ind in range(len(my_list)) if item in my_list[ind]]
 
 
-def compute_fulfilled_objectives(avm, avm_modified, config):
+def compute_fulfilled_objectives(avm, avm_modified, config, source_avm_performances):
     # Get selected change operations and their probability
     change_operations = config['Scope_for_Changes']['Change_Operations']
     change_probs = {}
@@ -912,7 +910,7 @@ def compute_fulfilled_objectives(avm, avm_modified, config):
             'Noise_small': noise_small_objective,
             'Noise_big': noise_big_objective,
             'Linear_Transformation': linear_transformation_objective,
-            'Negation': negation_objective
+            'Negation': negation_objective,
         }[operation](new_model_dict, model_dict, change_probs[operation], config)
 
         all_fitness[operation] = fitness
@@ -933,6 +931,10 @@ def compute_fulfilled_objectives(avm, avm_modified, config):
             sys.exit("Change_Interaction_percentage must be a float. Please check your configuration file!")
         fitness = interactions_objective(new_interactions_dict, interactions_dict, i_perc)
         all_fitness['Change_Interaction'] = fitness
+
+    if 'VariantCorrelation' in config:
+        variant_corr_fitness = variant_corr_objective(avm_modified, source_avm_performances, config)
+        all_fitness["VariantCorrelation"] = variant_corr_fitness
 
     all_fitnesses_list = list(all_fitness.values())
     return all_fitnesses_list
@@ -996,6 +998,16 @@ def noise_objective(new_model_dict, model_dict, p, sigma):
     noise_fitness = 1 - abs(p - change_ratio)
     ks_fitness = 1 - pears_distance
     return ks_fitness
+
+
+def variant_corr_objective(avm_estimated, source_avm_performances, config):
+    # TODO add guard
+    target_corr = float(config["VariantCorrelation"]["target_correlation"])
+    performances_vm_estimated = avm_estimated.calc_performance_for_validation_variants()
+    # TODO move into objective function
+    avm_sim = compute_similarities(source_avm_performances, performances_vm_estimated, config)
+    fitness = abs(target_corr - avm_sim)
+    return fitness
 
 
 def linear_transformation_objective(new_model_dict, model_dict, p, config):
