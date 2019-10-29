@@ -14,9 +14,12 @@ from sklearn.neighbors import KernelDensity
 class Nsga2:
     PERFORMANCE_RELEVANCE_REL_THRESH = 0.8
 
-    def __init__(self, conf, n_jobs):
+    def __init__(self, conf, n_jobs, seed=None):
         self.config = conf
         self.n_jobs = n_jobs
+        self.seed = seed
+        np.random.seed(self.seed)
+        print("Seeding NSGA2 with seed", self.seed)
 
     def nsga2(self, avm_new, vm_new):
         """
@@ -532,6 +535,7 @@ def compute_similarities(data, e_data, config):
         sim_results.append(ED_result)
     if "KS" in sim_measures:
         KS_result = sps.ks_2samp(data, e_data)
+        # KS_result = sps.spearmanr(data, e_data)
         sim_results.append(1 - min(KS_result[0], 0))
     mean_similarity = sum(sim_results) / len(sim_results)
     return mean_similarity
@@ -969,15 +973,29 @@ def noise_big_objective(new_model_dict, model_dict, p, config):
 
 
 def noise_objective(new_model_dict, model_dict, p, sigma):
-    differences = 0
-    for elem in list(new_model_dict.keys()):
-        if new_model_dict[elem] != model_dict[elem] and \
-                (new_model_dict[elem] < model_dict[elem] - (model_dict[elem] * sigma) or
-                 new_model_dict[elem] > model_dict[elem] + (model_dict[elem] * sigma)):
-            differences = differences + 1
-    change_ratio = differences / len(list(model_dict.keys()))
+    changed_fts = [elem for elem in list(new_model_dict.keys()) if new_model_dict[elem] != model_dict[elem]]
+    change_ratio = len(changed_fts) / len(list(model_dict.keys()))
+    new_vals = [new_model_dict[ft] for ft in changed_fts]
+    old_vals = [model_dict[ft] for ft in changed_fts]
+    noise_deltas = list(np.array(new_vals) - np.array(old_vals))
+    # noise_samples = sps.norm.rvs(loc=0, scale=sigma, size=500)
+    noise_samples = sps.norm.rvs(loc=0, scale=sigma, size=len(noise_deltas))
+    pears_distance = sps.pearsonr(noise_deltas, noise_samples)[0]
+    # # plt.hist(noise_deltas, bins=50);plt.show()
+    # norm_cdf = lambda x: sps.norm.cdf(x, scale=sigma)
+    # ks_goodness_of_fit = sps.kstest(noise_deltas, norm_cdf)
+    #
+    # differences = 0
+    # for elem in list(new_model_dict.keys()):
+    #     if new_model_dict[elem] != model_dict[elem] and \
+    #             (new_model_dict[elem] < model_dict[elem] - (model_dict[elem] * sigma) or
+    #              new_model_dict[elem] > model_dict[elem] + (model_dict[elem] * sigma)):
+    #         differences = differences + 1
+    # change_ratio = differences / len(list(model_dict.keys()))
+
     noise_fitness = 1 - abs(p - change_ratio)
-    return noise_fitness
+    ks_fitness = 1 - pears_distance
+    return ks_fitness
 
 
 def linear_transformation_objective(new_model_dict, model_dict, p, config):
