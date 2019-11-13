@@ -976,12 +976,16 @@ def noise_big_objective(new_model_dict, model_dict, p, config):
 
 def noise_objective(new_model_dict, model_dict, p, sigma):
     changed_fts = [elem for elem in list(new_model_dict.keys()) if new_model_dict[elem] != model_dict[elem]]
+    # if only one feature has changed, the following will fail
+    if len(changed_fts) < 2:
+        return 0
     change_ratio = len(changed_fts) / len(list(model_dict.keys()))
     new_vals = [new_model_dict[ft] for ft in changed_fts]
     old_vals = [model_dict[ft] for ft in changed_fts]
     noise_deltas = list(np.array(new_vals) - np.array(old_vals))
     # noise_samples = sps.norm.rvs(loc=0, scale=sigma, size=500)
     noise_samples = sps.norm.rvs(loc=0, scale=sigma, size=len(noise_deltas))
+
     pears_distance = sps.pearsonr(noise_deltas, noise_samples)[0]
     # # plt.hist(noise_deltas, bins=50);plt.show()
     # norm_cdf = lambda x: sps.norm.cdf(x, scale=sigma)
@@ -1229,7 +1233,7 @@ def kde(data_list, size, bandwidth_=None, cv=3):
     # use grid search cross-validation to optimize the bandwidth
     if auto_bandwith:
         params = {
-            'bandwidth': np.logspace(-1, 1, 20)
+            'bandwidth': np.logspace(-2, 2, 200)
         }
         grid = GridSearchCV(KernelDensity(), params, cv=cv, )
         grid.fit(data_np)

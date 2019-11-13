@@ -239,7 +239,7 @@ class Vm(ThorAvm):
         }.get(self.sampling_method)
         sol_collection = list()
         # substract root feature
-        largest_dimacs_literal = len(self.feature_influences) - 1
+        largest_dimacs_literal = len(self.feature_influences) #- 1
         if not np.any([largest_dimacs_literal in sub_list for sub_list in self.constraints]):
             dummy_constraint = [largest_dimacs_literal, -1 * largest_dimacs_literal]
             new_c.append(dummy_constraint)
@@ -351,10 +351,18 @@ class Vm(ThorAvm):
         pool = ThreadPool()
         l = [total_amount] * number_of_threads
         pool.map(worker, l)
+        inter_type_n = {}
 
-        for elem in range(len(interaction_degree)):
-            desired_amount = total_amount * interaction_ratio[elem] / 100
-            while desired_amount < len(splitted_new_interactions["dict" + str(interaction_degree[elem])]):
+        for i, elem in enumerate(interaction_degree):
+            desired_amount = total_amount * interaction_ratio[i] / 100
+            inter_type_n[i] = int(desired_amount)
+        accounted_inters = sum(list(inter_type_n.values()))
+        diff = total_amount - accounted_inters
+        if diff > 0:
+            inter_type_n[list(inter_type_n.keys())[0]] += diff
+
+        for elem, num_inters in inter_type_n.items():
+            while num_inters < len(splitted_new_interactions["dict" + str(interaction_degree[elem])]):
                 rchoice = random.choice(list(splitted_new_interactions["dict" + str(interaction_degree[elem])].keys()))
                 del splitted_new_interactions["dict" + str(interaction_degree[elem])][rchoice]
             all_new_interactions.update(splitted_new_interactions["dict" + str(interaction_degree[elem])])
@@ -366,40 +374,6 @@ class Vm(ThorAvm):
     # ----------
     # HELPER FUNCTIONS
     # ----------
-
-    def annotate_interaction_coverage(self, variants, feature_influences, interaction_influences):
-        """
-        A function which check for each variant, if they satisfy the previously provided (or estimated) interactions.
-        It does so by looking up the involved features for each interaction and checking if those features are set to 1 for
-        the respective variant. If so, the program appends a 1 (interaction satisfied) to the variant,
-        else it append a 0 (interaction not satisfied).
-
-        Args:
-            variants (numpy matrix): All previously computed variants, which satisfy the provided constrains
-            feature_influences (dict): All features with their names as keys and their values as values
-            interaction_influences (dict): All interactions with feature tuples as keys and their values as values
-
-        Returns:
-            A numpy matrix with variants and information about which interactions they satisfy.
-            Each row represents one variant and its interactions information.
-
-        """
-        valid_interaction = np.array([[1]])
-
-        def check_for_interaction(row):
-            for elem in interaction_influences.keys():
-                valid_interaction[0, 0] = 1
-                tokens = elem.split("#")
-                for feature in tokens:
-                    index = list(feature_influences.keys()).index(feature) - 1
-                    if row[0, index] == 0:
-                        valid_interaction[0, 0] = 0
-                        break
-                row = np.concatenate((row, valid_interaction), axis=1)  # np.insert(row, -1, valid_interaction)
-            return row
-
-        variants = np.apply_along_axis(check_for_interaction, axis=1, arr=variants)
-        return variants
 
     def calc_performance_for_validation_variants(self):
         """
@@ -418,15 +392,17 @@ class Vm(ThorAvm):
 
 
 def main():
-    random.seed()
+    # random.seed()
     parser = argparse.ArgumentParser(description='Thor2')
     parser.add_argument('path', metavar='config file path', type=str, help="the config's file path")
     args = parser.parse_args()
     config_location = args.path
+    run(config_location)
 
+
+def run(config_location):
     with open(config_location, 'r') as ymlfile:
         yml_cfg = yaml.load(ymlfile, Loader=yaml.FullLoader)
-
     for use_case_str in yml_cfg:
         cfg = yml_cfg[use_case_str]
         print(cfg)
@@ -481,6 +457,12 @@ class Saver:
         copy(self.dimacs_path, self.directory)
         thor_avm_original_path = inspect.getfile(thoravm)
         copy(thor_avm_original_path, self.directory)
+
+    def copy_input_avm(self, input_avm):
+        interactions_list = input_avm.get_interaction_influences()  # may be None
+        self.store_text(self.directory, input_avm.get_feature_dump(), "input_features")
+        if interactions_list is not None:
+            self.store_text(self.directory, input_avm.get_interaction_dump(), "input_interactions")
 
     def copy_aux_files(self):
         self.copy_conf_doc()
@@ -883,6 +865,7 @@ class Saver:
         result_custom_specs = conf_yaml["ResultsCustomSpecs"] if "ResultsCustomSpecs" in conf_yaml else None
         best_front = self.define_results(best_front_dict, result_selection, result_custom_specs)
         # save results
+        self.copy_input_avm(avm_old)
         for i, cur_vm in enumerate(best_front):
             result_dir = os.path.join(self.directory, "result" + str(i + 1))
             if not os.path.exists(result_dir):

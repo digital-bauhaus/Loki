@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pycosat
 import itertools
-
+from random import shuffle
 
 # from thor.thor2 import is_attributed, dimacs_path, feature_influence_file
 
@@ -89,14 +89,11 @@ class ThorAvm:
             An array of all variant fitnesses/costs.
         """
         feature_and_influence_vector = self.get_feature_and_influence_vector()
-        root = np.ravel(feature_and_influence_vector)[0]
+        # root = np.ravel(feature_and_influence_vector)[0]
         variants = np.transpose(variants)
-        # len_ratio = len_f_and_i / feature_and_influence_vector.shape[1]
-        feature_and_influence_vector = np.delete(feature_and_influence_vector, 0, 1)
+        # feature_and_influence_vector = np.delete(feature_and_influence_vector, 0, 1)
         m_fitness = np.dot(feature_and_influence_vector, variants)
-        # if len_ratio != 1:
-        #     m_fitness = m_fitness * len_ratio
-        m_fitness = np.add(m_fitness, root)
+        # m_fitness = np.add(m_fitness, root)
         m_fitness = np.asarray(m_fitness)
         m_fitness = m_fitness.ravel()
         return m_fitness
@@ -284,6 +281,40 @@ class ThorAvm:
                     sol_collection.append(solution)
         m_sol_list = np.asmatrix(sol_collection)
         return m_sol_list
+
+    def annotate_interaction_coverage(self, variants, feature_influences, interaction_influences):
+        """
+        A function which check for each variant, if they satisfy the previously provided (or estimated) interactions.
+        It does so by looking up the involved features for each interaction and checking if those features are set to 1 for
+        the respective variant. If so, the program appends a 1 (interaction satisfied) to the variant,
+        else it append a 0 (interaction not satisfied).
+
+        Args:
+            variants (numpy matrix): All previously computed variants, which satisfy the provided constrains
+            feature_influences (dict): All features with their names as keys and their values as values
+            interaction_influences (dict): All interactions with feature tuples as keys and their values as values
+
+        Returns:
+            A numpy matrix with variants and information about which interactions they satisfy.
+            Each row represents one variant and its interactions information.
+
+        """
+        valid_interaction = np.array([[1]])
+
+        def check_for_interaction(row):
+            for elem in interaction_influences.keys():
+                valid_interaction[0, 0] = 1
+                tokens = elem.split("#")
+                for feature in tokens:
+                    index = list(feature_influences.keys()).index(feature) - 1
+                    if row[0, index] == 0:
+                        valid_interaction[0, 0] = 0
+                        break
+                row = np.concatenate((row, valid_interaction), axis=1)  # np.insert(row, -1, valid_interaction)
+            return row
+
+        variants = np.apply_along_axis(check_for_interaction, axis=1, arr=variants)
+        return variants
 
 
 def concatenate(list_a, list_b):
