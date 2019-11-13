@@ -7,7 +7,7 @@ from random import shuffle
 # from thor.thor2 import is_attributed, dimacs_path, feature_influence_file
 
 
-class ThorAvm:
+class LokiAvm:
     DIMACS_FILE_CUES = ['dimacs', 'constraints']
     FEATURE_FILE_CUES = ['feature']
     INTERACTION_FILE_CUES = ['interaction']
@@ -25,11 +25,11 @@ class ThorAvm:
             own_path = os.path.dirname(__file__)
             for cur_file in os.listdir(own_path):
                 low_dir = str(cur_file).lower()
-                if np.any([cue in low_dir for cue in ThorAvm.DIMACS_FILE_CUES]):
+                if np.any([cue in low_dir for cue in LokiAvm.DIMACS_FILE_CUES]):
                     self.dimacs_path = os.path.join(cur_file)
-                if np.any([cue in low_dir for cue in ThorAvm.FEATURE_FILE_CUES]):
+                if np.any([cue in low_dir for cue in LokiAvm.FEATURE_FILE_CUES]):
                     self.feature_file = os.path.join(cur_file)
-                if np.any([cue in low_dir for cue in ThorAvm.INTERACTION_FILE_CUES]):
+                if np.any([cue in low_dir for cue in LokiAvm.INTERACTION_FILE_CUES]):
                     self.interaction_file = os.path.join(cur_file)
         else:
             self.dimacs_path = dimacs_path
@@ -277,7 +277,7 @@ class ThorAvm:
                 solution = pycosat.solve(c_copy)
                 if solution != "UNSAT":
                     new_c.append([j * -1 for j in solution])
-                    solution = ThorAvm.transform2binary(solution)
+                    solution = LokiAvm.transform2binary(solution)
                     sol_collection.append(solution)
         m_sol_list = np.asmatrix(sol_collection)
         return m_sol_list

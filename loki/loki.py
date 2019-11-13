@@ -14,12 +14,12 @@ import pycosat
 import seaborn as sns
 import yaml
 
-from thor.nsga2 import Nsga2
-from thor.nsga2 import kde
-import thor.thoravm as thoravm
+from loki.nsga2 import Nsga2
+from loki.nsga2 import kde
+import loki.lokiavm as lokiavm
 from shutil import copy
 import inspect
-from thor.thoravm import ThorAvm
+from loki.lokiavm import LokiAvm
 
 sns.set()
 
@@ -107,7 +107,7 @@ class AvmComparison:
         pass
 
 
-class Vm(ThorAvm):
+class Vm(LokiAvm):
     DEFAULT_JOBS = 1
 
     def __init__(self, yml, variant_set_size, sampling_yaml, is_attributed=False, using_interactions=False,
@@ -393,7 +393,7 @@ class Vm(ThorAvm):
 
 def main():
     # random.seed()
-    parser = argparse.ArgumentParser(description='Thor2')
+    parser = argparse.ArgumentParser(description='Loki')
     parser.add_argument('path', metavar='config file path', type=str, help="the config's file path")
     args = parser.parse_args()
     config_location = args.path
@@ -455,7 +455,7 @@ class Saver:
 
     def copy_template_files(self):
         copy(self.dimacs_path, self.directory)
-        thor_avm_original_path = inspect.getfile(thoravm)
+        thor_avm_original_path = inspect.getfile(lokiavm)
         copy(thor_avm_original_path, self.directory)
 
     def copy_input_avm(self, input_avm):
