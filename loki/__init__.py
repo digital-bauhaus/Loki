@@ -1,1 +1,2 @@
-
+"""Loki"""
+name = "Loki"

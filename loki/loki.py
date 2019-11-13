@@ -13,13 +13,12 @@ import numpy as np
 import pycosat
 import seaborn as sns
 import yaml
-
-from loki.nsga2 import Nsga2
-from loki.nsga2 import kde
-import loki.lokiavm as lokiavm
+from nsga2 import Nsga2
+from nsga2 import kde
+import lokiavm as lokiavm
 from shutil import copy
 import inspect
-from loki.lokiavm import LokiAvm
+from lokiavm import LokiAvm
 
 sns.set()
 
