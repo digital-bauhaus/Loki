@@ -531,6 +531,12 @@ def compute_similarities(data, e_data, config):
         ED_result = spsp.distance.euclidean(data, e_data)
         ED_result = 1 / (ED_result + 1)
         sim_results.append(ED_result)
+    if "SP" in sim_measures:
+        sp_result = sps.spearmanr(data, e_data)
+        sim_results.append(sp_result)
+    if "KL" in sim_measures:
+        sp_result = sps.entropy(data, e_data)
+        sim_results.append(sp_result)
     if "KS" in sim_measures:
         KS_result = sps.ks_2samp(data, e_data)
         # KS_result = sps.spearmanr(data, e_data)
@@ -539,7 +545,7 @@ def compute_similarities(data, e_data, config):
     return mean_similarity
 
 
-def front_rank_assignment(population_fitness_dicts):  # works :D
+def front_rank_assignment(population_fitness_dicts):
     """
     A function to compute the ranks of a population given a list of objectives.
 
@@ -562,7 +568,7 @@ def front_rank_assignment(population_fitness_dicts):  # works :D
     return ranks
 
 
-def non_dominated_search(population_fitness_dicts):  # def non_dominated_search(P, O):# works :D
+def non_dominated_search(population_fitness_dicts):  # def non_dominated_search(P, O):
     """
     A function to compute the front rank of a population given a list of objectives.
 
@@ -590,7 +596,7 @@ def non_dominated_search(population_fitness_dicts):  # def non_dominated_search(
     return true_front
 
 
-def pareto_dominates(population_fitness_dicts, candidate_a, candidate_b):  # works :D
+def pareto_dominates(population_fitness_dicts, candidate_a, candidate_b):
     """
     A function which checks if candidate solution A dominates candidate solution B.
 
